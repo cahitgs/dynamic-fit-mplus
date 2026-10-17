@@ -1,0 +1,12 @@
+{
+  "name": "dynamic-fit-mplus-tools",
+  "private": true,
+  "type": "module",
+  "description": "Test tools of Dynamic Fit for Mplus (screenshots). Install once: cd tools && npm install. The server itself has no dependencies.",
+  "scripts": {
+    "screenshot": "node screenshot.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.43.1"
+  }
+}

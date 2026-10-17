@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dynamic Fit for Mplus</title>
+<meta name="description" content="Dynamic fit index (DFI) cutoffs for CFA and second-order factor models, simulated with Mplus on your own computer.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='7' width='4' height='8' rx='1' fill='%232C5D9E'/%3E%3Crect x='6' y='3' width='4' height='12' rx='1' fill='%232C5D9E'/%3E%3Crect x='11' y='5' width='4' height='10' rx='1' fill='%23C98212'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Courier+Prime&family=Familjen+Grotesk:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --desk: #DDE2DF; --panel: #F5F6F4; --card: #FFFFFF; --sunk: #EEF1EF;
+    --ink: #15191E; --ink-2: #434B55; --ink-3: #66707B;
+    --rule: #DCE1DE; --hair: rgba(21, 25, 30, .09);
+    --act: #15191E; --act-hover: #262C33; --act-press: #0A0D10; --act-wash: #E6E9E7;
+    --ring: rgba(95, 168, 232, .62);
+    --l1: #C98212; --l1-ink: #8A5807; --l1-wash: #F6EBD6;
+    --l2: #2C5D9E; --l2-ink: #1F4373; --l2-wash: #E1E9F4;
+    --sh-1: 0 1px 0 rgba(21, 25, 30, .03), 0 1px 3px rgba(21, 25, 30, .07);
+    --sh-paper: 0 1px 0 rgba(21, 25, 30, .04), 0 2px 4px rgba(21, 25, 30, .05), 0 14px 28px -10px rgba(21, 25, 30, .14), 0 44px 90px -34px rgba(21, 25, 30, .38);
+    --spring: cubic-bezier(.34, 1.36, .64, 1);
+    --ui: 'Familjen Grotesk', 'Segoe UI', Arial, sans-serif;
+    --serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --mono: 'Courier Prime', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--panel); color: var(--ink); font: 17px/1.7 var(--ui); }
+  a { color: var(--l2-ink); text-underline-offset: 3px; }
+  a:hover { color: var(--l2); }
+  a:active { opacity: .75; }
+  a:focus-visible, .btn:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; border-radius: 6px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  header { padding: 64px 0 28px; }
+  .eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(38px, 6vw, 60px); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 18px; }
+  .lead { font-size: 19px; color: var(--ink-2); max-width: 720px; margin: 0 0 28px; }
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 1px 10px; border-radius: 999px; font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .chip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .chip.l2 { background: var(--l2-wash); color: var(--l2-ink); } .chip.l2 i { background: var(--l2); }
+  .chip.l1 { background: var(--l1-wash); color: var(--l1-ink); } .chip.l1 i { background: var(--l1); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; height: 54px; padding: 0 24px; border-radius: 12px; font: 600 17px var(--ui); text-decoration: none; border: 1px solid transparent; transition: transform .25s var(--spring), opacity .2s; }
+  .btn svg { flex: none; }
+  .btn-primary { background: var(--act); color: #fff; box-shadow: var(--sh-1); }
+  .btn-primary:hover { background: var(--act-hover); color: #fff; transform: translateY(-1px); }
+  .btn-primary:active { background: var(--act-press); transform: translateY(0) scale(.98); }
+  .btn-ghost { background: var(--card); color: var(--ink); border-color: var(--rule); }
+  .btn-ghost:hover { background: var(--act-wash); color: var(--ink); transform: translateY(-1px); }
+  .btn-ghost:active { transform: translateY(0) scale(.98); }
+  .fine { font-size: 14px; color: var(--ink-3); margin: 0; }
+  .shot { margin: 36px 0 8px; border-radius: 14px; overflow: hidden; background: var(--card); box-shadow: var(--sh-paper); border: 1px solid var(--hair); }
+  .shot img { display: block; width: 100%; height: auto; }
+  figcaption { font-size: 14px; color: var(--ink-3); margin: 10px 2px 0; }
+  section { padding: 48px 0 8px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 32px; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--hair); border-radius: 14px; padding: 20px 22px; box-shadow: var(--sh-1); }
+  .card h3 { font-size: 17px; margin: 0 0 6px; line-height: 1.35; }
+  .card p { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.6; }
+  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; display: grid; gap: 10px; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: start; background: var(--card); border: 1px solid var(--hair); border-radius: 12px; padding: 14px 18px; }
+  ol.steps li::before { content: counter(s); font: 600 15px var(--ui); width: 30px; height: 30px; border-radius: 50%; background: var(--act-wash); display: grid; place-items: center; margin-top: 1px; }
+  ol.steps b { font-weight: 600; }
+  .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .shot.small { margin: 0; }
+  code, pre { font-family: var(--mono); font-size: 15px; }
+  pre { background: var(--card); border: 1px solid var(--hair); border-radius: 12px; padding: 14px 18px; overflow-x: auto; margin: 0; }
+  blockquote { margin: 0; background: var(--card); border-left: 3px solid var(--l2); border-radius: 0 12px 12px 0; padding: 14px 18px; font-family: var(--serif); font-size: 17px; }
+  .refs p { font-family: var(--serif); font-size: 15.5px; line-height: 1.55; padding-left: 2em; text-indent: -2em; margin: 0 0 8px; color: var(--ink-2); }
+  footer { padding: 48px 0 64px; color: var(--ink-3); font-size: 14px; }
+  @media (max-width: 860px) {
+    .grid, .two { grid-template-columns: minmax(0, 1fr); }
+    header { padding-top: 40px; }
+    .wrap { padding: 0 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <p class="eyebrow">Free and open source · Windows · Mplus 8</p>
+  <h1>Dynamic Fit for Mplus</h1>
+  <p class="lead">Dynamic fit index cutoffs for confirmatory and second-order factor models, simulated with Mplus on your own computer. The cutoffs separate the fit of your <span class="chip l2"><i></i>correct model</span> from the fit under a <span class="chip l1"><i></i>misspecification</span> of known size, with the fit index definitions of the Mplus output you report.</p>
+  <div class="actions">
+    <a class="btn btn-primary" href="https://github.com/cahitgs/dynamic-fit-mplus/releases/latest"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12m0 0-4.5-4.5M12 16l4.5-4.5M4 18v1.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V18"/></svg>Download for Windows</a>
+    <a class="btn btn-ghost" href="https://github.com/cahitgs/dynamic-fit-mplus"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>Source on GitHub</a>
+  </div>
+  <p class="fine">A single <code>.exe</code>, nothing to install. Needs Mplus 8.x on the same computer (tested with 8.3; the free demo handles at most 6 items). Your data never leave it; the interface loads its styles and fonts from the web.</p>
+  <figure class="shot"><img src="img/report.png" alt="The app: the control column on the left and the APA paper with the dynamic cutoffs and the distribution figure on the right" width="1920" height="1080"></figure>
+</header>
+
+<main>
+<section class="wrap" aria-labelledby="what">
+  <h2 id="what">What it does</h2>
+  <div class="grid">
+    <div class="card"><h3>Three ways in</h3><p>Raw data (the app fits your CFA in Mplus first), an Mplus output file, or standardized estimates typed in from a paper.</p></div>
+    <div class="card"><h3>One-factor, multi-factor, second-order</h3><p>Continuous items as normal data with ML, or ordinal items generated from the estimated thresholds and analyzed with WLSMV.</p></div>
+    <div class="card"><h3>The rules of dynamic</h3><p>Misspecifications as in the dynamic R package: omitted cross-loadings, or residual correlations of .30 in one-factor models.</p></div>
+    <div class="card"><h3>CFI in every replication</h3><p>Mplus 8.3 Monte Carlo does not report CFI, so each condition is rerun with the baseline model on the same seed.</p></div>
+    <div class="card"><h3>Improper solutions in the open</h3><p>Replications with a non–positive definite covariance matrix (TECH9) are counted; keep them, as dynamic does, or exclude them.</p></div>
+    <div class="card"><h3>A paper draft, not just numbers</h3><p>APA 7 method, results, tables, a figure in black and white or color, and references. Every Mplus file is one click away.</p></div>
+  </div>
+</section>
+
+<section class="wrap" aria-labelledby="how">
+  <h2 id="how">How it works</h2>
+  <div class="two">
+    <ol class="steps">
+      <li><span><b>Data.</b> Choose raw data, an Mplus output or typed-in estimates. A sample data set and a published example are included.</span></li>
+      <li><span><b>Structure.</b> Assign items to factors, optionally under a second-order factor.</span></li>
+      <li><span><b>Settings.</b> Ordinal or normal data, number of replications, improper solutions.</span></li>
+      <li><span><b>Run.</b> Mplus simulates the correct model and every misspecification level, two runs at a time.</span></li>
+      <li><span><b>Report.</b> The cutoffs, the observed fit and the distributions appear in the paper.</span></li>
+    </ol>
+    <figure class="shot small"><img src="img/output.png" alt="An Mplus output open in the app, with the TECH9 messages of improper solutions highlighted" width="1440" height="900" loading="lazy"><figcaption>Every Mplus output opens in the app; errors, warnings and improper solutions are highlighted.</figcaption></figure>
+  </div>
+</section>
+
+<section class="wrap" aria-labelledby="start">
+  <h2 id="start">Get started</h2>
+  <div class="two">
+    <div class="card"><h3>Windows app</h3><p>Download <code>DynamicFitMplus.exe</code> from the <a href="https://github.com/cahitgs/dynamic-fit-mplus/releases/latest">latest release</a> and double-click it. The app opens in your browser; projects are saved next to the <code>.exe</code>. The file is not signed, so Windows may ask once: <i>More info → Run anyway</i>.</p></div>
+    <div class="card"><h3>From source</h3><p>With Node.js 18 or newer, no packages to install:</p><pre>git clone https://github.com/cahitgs/dynamic-fit-mplus.git
+cd dynamic-fit-mplus
+node serve.mjs --open</pre></div>
+  </div>
+</section>
+
+<section class="wrap" aria-labelledby="cite">
+  <h2 id="cite">How to cite</h2>
+  <blockquote>Marangoz, M. C. (2026). <i>Dynamic Fit for Mplus</i> (Version 1.0.0) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus</blockquote>
+  <p class="fine" style="margin-top:12px">Please cite the method papers as well:</p>
+  <div class="refs" style="margin-top:10px">
+    <p>McNeish, D., &amp; Wolf, M. G. (2023a). Dynamic fit index cutoffs for confirmatory factor analysis models. <i>Psychological Methods, 28</i>(1), 61–88. <a href="https://doi.org/10.1037/met0000425">https://doi.org/10.1037/met0000425</a></p>
+    <p>McNeish, D., &amp; Wolf, M. G. (2023b). Dynamic fit index cutoffs for one-factor models. <i>Behavior Research Methods, 55</i>(3), 1157–1174. <a href="https://doi.org/10.3758/s13428-022-01847-y">https://doi.org/10.3758/s13428-022-01847-y</a></p>
+    <p>McNeish, D. (2023). Dynamic fit index cutoffs for categorical factor analysis with Likert-type, ordinal, or binary responses. <i>American Psychologist, 78</i>(9), 1061–1075. <a href="https://doi.org/10.1037/amp0001213">https://doi.org/10.1037/amp0001213</a></p>
+    <p>McNeish, D., &amp; Manapat, P. D. (2024). Dynamic fit index cutoffs for hierarchical and second-order factor models. <i>Structural Equation Modeling: A Multidisciplinary Journal, 31</i>(1), 27–47. <a href="https://doi.org/10.1080/10705511.2023.2225132">https://doi.org/10.1080/10705511.2023.2225132</a></p>
+    <p>McNeish, D., &amp; Wolf, M. G. (2024). Direct discrepancy dynamic fit index cutoffs for arbitrary covariance structure models. <i>Structural Equation Modeling: A Multidisciplinary Journal, 31</i>(5), 835–862. <a href="https://doi.org/10.1080/10705511.2024.2308005">https://doi.org/10.1080/10705511.2024.2308005</a></p>
+    <p>Wolf, M. G., &amp; McNeish, D. (2023). dynamic: An R package for deriving dynamic fit index cutoffs for factor analysis. <i>Multivariate Behavioral Research, 58</i>(1), 189–194. <a href="https://doi.org/10.1080/00273171.2022.2163476">https://doi.org/10.1080/00273171.2022.2163476</a></p>
+  </div>
+</section>
+</main>
+
+<footer class="wrap">
+  <p>Mehmet Cahit Marangoz · Ankara University · AGPL-3.0. The simulation rules are ported from the <a href="https://github.com/melissagwolf/dynamic">dynamic</a> R package by Melissa G. Wolf and Daniel McNeish (AGPL-3). An independent project, not affiliated with Muthén &amp; Muthén or with the authors of dynamic.</p>
+</footer>
+</body>
+</html>
