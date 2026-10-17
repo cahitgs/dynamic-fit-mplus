@@ -13,8 +13,8 @@ How large SRMR, RMSEA and CFI become under a given misspecification depends on t
 - **Misspecifications as in the dynamic R package** (Wolf & McNeish, 2023):
   - Multi-factor models: omitted cross-loadings (McNeish & Wolf, 2023a). Second-order models: omitted cross-loadings on the first-order factors (McNeish & Manapat, 2024).
   - Second-order models with four or more first-order factors, in addition: omitted correlations of .50 between first-order disturbances (structural misspecification; McNeish & Manapat, 2024; dynamic's `hier2`).
-  - One-factor models: omitted residual correlations of .30 (McNeish & Wolf, 2023a, 2023b). As in dynamic, Level 1 rounds the number of correlations down; the formula printed in McNeish & Wolf (2023a) rounds, which gives one more with 10, 11, 16, 17, 22, 23, 28 or 29 items. The report says so when it applies.
-- **Reverse-coded items do not change the cutoffs.** Each misspecification takes the sign that keeps it the same when an item is reverse-coded or a factor is reflected. The papers and dynamic always add positive values, so with positive loadings the two are identical. A setting reproduces the papers and dynamic exactly instead (dynamic issue #7).
+  - One-factor models: omitted residual correlations of .30 (McNeish & Wolf, 2023a, 2023b). Level 1 follows the formula of McNeish & Wolf (2023a), which rounds the number of correlations (about one-third of the items); dynamic rounds down, so with 10, 11, 16, 17, 22, 23, 28 or 29 items its Level 1 has one correlation less. The report says so when it applies.
+- **Reverse-coded items do not change the cutoffs.** Each misspecification takes the sign that keeps it the same when an item is reverse-coded or a factor is reflected. The papers and dynamic always add positive values, so with positive loadings the two are identical. An "As dynamic" setting reproduces dynamic exactly instead (dynamic issue #7), including its one-factor Level 1.
 - **CFI for every replication.** Mplus 8.3 does not report CFI for Monte Carlo studies (McNeish & Wolf, 2023a, Appendix B). The app therefore runs every condition a second time with the baseline model on the same seed, and computes CFI from the two chi-square statistics as Mplus does.
 - **Improper solutions are counted.** Replications whose residual or latent covariance matrix is not positive definite (Mplus TECH9) are reported for every condition. You choose whether they are retained, as in dynamic, or excluded.
 - **Two cutoff rules, both reported** (the main one in Table 2, the other in Table 3):
@@ -72,7 +72,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 ## Validation
 
-- **Misspecifications:** the app adds the same cross-loadings as dynamic's `multi_add_HB` and `multi_add_hier` (item, target factor and magnitude), the same residual-correlation pairs as `one_add`, and the same disturbance-correlation pairs and covariances as `hier2`. This was checked on the package's own examples and further test models; with the "as dynamic" sign setting it also holds for models with negative loadings.
+- **Misspecifications:** the app adds the same cross-loadings as dynamic's `multi_add_HB` and `multi_add_hier` (item, target factor and magnitude), the same residual-correlation pairs as `one_add` (with the "As dynamic" setting also the same number per level), and the same disturbance-correlation pairs and covariances as `hier2`. This was checked on the package's own examples and further test models; with the "as dynamic" sign setting it also holds for models with negative loadings.
 - **Cutoff rules:** applied to dynamic's own simulated fit distributions, the app's two rules reproduce every cutoff that dynamic prints (33 of 33 cells).
 - **Appendix B of McNeish & Wolf (2023a):** with the same Mplus options (`MODEL = NOMEANSTRUCTURE; INFORMATION = EXPECTED;`) and seed (1981), the app's Monte Carlo inputs reproduce the appendix's simulation replication by replication.
 - **Self-test:** `node tools/engine-test.mjs` checks the engine, runs the sample CFA in Mplus in an ASCII folder, a folder with Turkish letters and spaces, and through an ASCII temporary copy, runs a short ordinal DFI, and reproduces a 500-replication reference DFI of the A-SAGS model (`--quick` skips the reference DFI).
@@ -97,7 +97,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.1) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.2) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 

@@ -55,6 +55,10 @@ const one = { ...D.parseStdModel('F =~ .42*x1 + .21*x2 + .20*x3 + .85*x4 + .85*x
 const p1 = D.planDfi(one, {});
 check(p1.type === 'one' && p1.levels.map((l) => l.addRcov.length).join(',') === '1,2,3', `one-factor model: 1, 2, 3 residual correlations (got ${p1.levels.map((l) => l.addRcov.length).join(',')})`);
 check(planA.slevels.length === 0 && planA.structural.reason === 'saturated', 'A-SAGS: no structural levels (3 first-order factors: saturated)');
+// one-factor Level 1: McNeish & Wolf (2023a) round (⌊⌊I/2⌋/3 + .5⌋), dynamic rounds down ('As dynamic')
+const ten = { ...D.parseStdModel('F =~ .52*Q1 + .61*Q2 + .55*Q3 + .70*Q4 + .66*Q5 + .58*Q6 + .73*Q7 + .64*Q8 + .69*Q9 + .60*Q10'), n: 300 };
+const cnt = (o) => D.planDfi(ten, o).levels.map((l) => l.addRcov.length).join(',');
+check(cnt({}) === '2,3,5' && cnt({ signs: 'dynamic' }) === '1,3,5' && D.planDfi(ten, {}).l1Differs, `one-factor, 10 items: levels 2,3,5 as in the paper, 1,3,5 as dynamic (got ${cnt({})} / ${cnt({ signs: 'dynamic' })})`);
 const dfErr = (txt) => { try { D.planDfi({ ...D.parseStdModel(txt), n: 300 }, {}); return ''; } catch (e) { return e.message; } };
 check(/df = 0/.test(dfErr('F =~ .7*a + .6*b + .5*c')) && !dfErr('F1 =~ .7*a + .6*b\nF2 =~ .7*c + .6*d\nF1 ~~ .3*F2'), 'models without degrees of freedom are refused (3-item one-factor: df = 0; 2 × 2 items: df = 1 runs)');
 // hier2 (structural misspecification) against dynamic: pairs and disturbance covariances of a 6-factor model

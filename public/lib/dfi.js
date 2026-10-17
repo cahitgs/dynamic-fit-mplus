@@ -1,7 +1,9 @@
 // Dynamic fit index (DFI) cutoffs with Mplus Monte Carlo simulation.
 // A port of the 'dynamic' R package (Wolf & McNeish, 2023; AGPL-3): the data-generating models, the
 // misspecification rules and the cutoff rules follow dynamic's code (GitHub, DESCRIPTION version 1.1.0, commit
-// 90aa51f: cfaOne, cfaHB, hier1HB, catOne, catHB; CRAN 1.1.0 of 2022 for the 95/5 rule of cfaOne/cfaHB);
+// 90aa51f: cfaOne, cfaHB, hier1HB, catOne, catHB; CRAN 1.1.0 of 2022 for the 95/5 rule of cfaOne/cfaHB), except by
+// default the signs of the misspecifications (dynamic issue #7) and the one-factor Level 1 (McNeish & Wolf, 2023a);
+// signs = 'dynamic' reproduces the package exactly;
 // data generation and estimation are done by Mplus. Mplus Monte Carlo runs do not save CFI per replication, so
 // every condition is run twice with the same SEED (identical data sets): once with the analysis model and once
 // with the baseline (independence) model; CFI and TLI are computed from the two chi-square statistics exactly
@@ -383,7 +385,8 @@ export function misspecHB(spec, st, type, signs = 'invariant') {
  * Residual correlations of .30 for one-factor models (cfaOne/catOne): items without residual covariances
  * sorted by |loading|, paired (2nd with 1st, 4th with 3rd, …); levels add 1/3, 2/3 and all of the pairs.
  * signs = 'invariant' (default): each residual correlation is signed as sign(loading_a × loading_b), so that
- * reverse-coding an item does not change the misfit; 'dynamic': always +.30 (dynamic issue #7).
+ * reverse-coding an item does not change the misfit, and Level 1 rounds as in McNeish & Wolf (2023a);
+ * 'dynamic': always +.30 (dynamic issue #7) and Level 1 rounded down, as in the package.
  */
 export function misspecOne(spec, st, signs = 'invariant') {
   const rcItems = uniq([...spec.with.map((w) => w.a), ...spec.with.map((w) => w.b)]).filter((x) => st.items.includes(x));
@@ -401,11 +404,13 @@ export function misspecOne(spec, st, signs = 'invariant') {
     pairs.push({ a, b, rcor, cov: rcor * Math.sqrt(pop.theta[pop.ii[a]] * pop.theta[pop.ii[b]]) });
   }
   const L3 = Math.floor(k / 2);
-  // Level 1 rounds down as in dynamic; the formula of McNeish & Wolf (2023a, p. 56) rounds (⌊L3/3 + .5⌋), which
-  // gives one pair more when L3 mod 3 = 2 (10, 11, 16, 17, … items)
-  const levels = k === 4 ? [1] : k === 5 ? [1, 2] : [Math.floor(L3 / 3), Math.floor((2 * L3) / 3), L3];
-  const paperL1 = k < 6 ? levels[0] : Math.floor(L3 / 3 + 0.5);
-  return { pairs, levels, k, paperL1 };
+  // Level 1: the formula of McNeish & Wolf (2023a, p. 56) rounds, ⌊L3/3 + .5⌋ ("about one-third of the items");
+  // dynamic rounds down, ⌊L3/3⌋, which gives one pair less when L3 mod 3 = 2 (10, 11, 16, 17, … items)
+  const paperL1 = k < 6 ? 1 : Math.floor(L3 / 3 + 0.5);
+  const dynL1 = k < 6 ? 1 : Math.floor(L3 / 3);
+  const L1 = signs === 'dynamic' ? dynL1 : paperL1;
+  const levels = k === 4 ? [1] : k === 5 ? [1, 2] : [L1, Math.floor((2 * L3) / 3), L3];
+  return { pairs, levels, k, paperL1, dynL1 };
 }
 
 /**
@@ -554,7 +559,8 @@ export function planDfi(spec, opts = {}) {
   if (type === 'multi' && st.factors.length < 2) throw new Error('A multi-factor analysis needs at least two factors.');
   if (type === 'hier' && !st.higher.length) throw new Error('A higher-order analysis needs a higher-order factor.');
 
-  let levels, misspec, signSensitive;
+  // signSensitive: the signs setting changes a misspecification's sign; l1Differs: it changes the one-factor Level 1
+  let levels, misspec, signSensitive, l1Differs = false;
   if (type === 'one') {
     misspec = misspecOne(spec, st, signs);
     levels = misspec.levels.map((k, i) => {
@@ -563,6 +569,7 @@ export function planDfi(spec, opts = {}) {
     });
     const sgn = Object.fromEntries(spec.by.map((x) => [x.ind, Math.sign(x.est)]));
     signSensitive = misspec.pairs.some((x) => sgn[x.a] * sgn[x.b] < 0);
+    l1Differs = misspec.paperL1 !== misspec.dynL1;
   } else {
     misspec = misspecHB(spec, st, type, signs);
     levels = misspec.map((s, i) => ({ level: i + 1, addBy: misspec.slice(0, i + 1).map((x) => ({ f: x.target, ind: x.item, est: x.est })), addRcov: [], added: `${s.target} BY ${s.item} (${f3(s.est).replace(/^-/, '−')})` }));
@@ -611,7 +618,7 @@ export function planDfi(spec, opts = {}) {
       files.push({ name: `${stem}.inp`, out: `${stem}.out`, res, text, level: lv.level, kind, family: lv.family });
     }
   }
-  return { type, dataType, estimator, noMeans, rule, signs, signSensitive, n: spec.n, nSim, reps: o.reps, nmax: o.nmax, seeds: { true: o.seedTrue, misspec: o.seedMisspec }, st, catItems, levels, slevels, structural, misspec, files };
+  return { type, dataType, estimator, noMeans, rule, signs, signSensitive, l1Differs, n: spec.n, nSim, reps: o.reps, nmax: o.nmax, seeds: { true: o.seedTrue, misspec: o.seedMisspec }, st, catItems, levels, slevels, structural, misspec, files };
 }
 
 // ---------------------------------------------------------------- reading the Monte Carlo runs

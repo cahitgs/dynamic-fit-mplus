@@ -49,7 +49,7 @@ Ayrıca:
 - Ters kodlu maddeler kesme değerlerini değiştirmez: yanlış belirtmeler kodlamaya duyarsız işaret alır (yükler pozitifken `dynamic` ile aynı). Ayarlar'daki "As dynamic" seçeneği paketi birebir yeniden üretir (`dynamic` issue #7).
 - Eşitlik kısıtları simülasyonun analiz modelinde serbest bırakılır (`dynamic`'te olduğu gibi).
 - Serbestlik derecesi 0 olan modeller reddedilir; uyumları sınanamaz.
-- Tek faktörlü modellerde 1. düzey, `dynamic` gibi aşağı yuvarlanır; McNeish ve Wolf'un (2023a) formülü yuvarlar ve 10, 11, 16, 17, 22, 23, 28, 29 maddede bir korelasyon fazla verir. Rapor bunu yazar.
+- Tek faktörlü modellerde 1. düzey McNeish ve Wolf'un (2023a) formülünü izler (yuvarlar; maddelerin yaklaşık üçte biri). `dynamic` aşağı yuvarlar ve 10, 11, 16, 17, 22, 23, 28, 29 maddede bir korelasyon eksik ekler; Ayarlar'daki "As dynamic" seçeneği paketi birebir verir. Rapor bunu yazar.
 - Mplus değişken adları en çok 8 karakterdir.
 
 ## Lisans ve kaynak

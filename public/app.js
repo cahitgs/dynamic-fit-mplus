@@ -492,7 +492,7 @@ function dfiSig() {
   // (noMeans and the sign convention are added only when they change the study, so that the signatures of
   // earlier projects stay valid)
   const d = derive();
-  const sg = d.plan && d.plan.signSensitive ? { s: P.design.signs } : {};
+  const sg = d.plan && (d.plan.signSensitive || d.plan.l1Differs) ? { s: P.design.signs } : {};
   return JSON.stringify({ m: mode, c: mode === 'csv' ? cfaSig() : null, o: mode === 'out' && S.srcText ? hash(S.srcText) : null, h: mode === 'manual' ? [P.source.text, P.source.n, ...(P.source.noMeans ? [true] : [])] : null, dt: P.design.dataType, r: P.design.reps, ...sg });
 }
 const dfiFiles = () => { const d = derive(); return d.plan ? d.plan.files : []; };
@@ -1021,11 +1021,22 @@ function ctrlSettings() {
   const pol = P.design.policy;
   const polCard = `<section class="card">${cardHead(t('Improper solutions', 'Uygunsuz çözümler'), t('Replications where Mplus reports a non–positive definite residual or latent covariance matrix (e.g., a negative residual variance). Changing this does not need a new run.', 'Mplus’ın artık ya da örtük kovaryans matrisinin pozitif tanımlı olmadığını bildirdiği tekrarlar (ör. negatif artık varyans). Bunu değiştirmek yeniden çalıştırma gerektirmez.'))}
     <div class="card-b"><div class="opt-grid-2">${opt('setPolicy', 'include', pol, t('Retain · as dynamic', 'Tut · dynamic gibi'), t('Every replication counts, as in the dynamic package. The number of improper solutions is reported.', 'Her tekrar sayılır; dynamic paketinde olduğu gibi. Uygunsuz çözüm sayısı raporlanır.'))}${opt('setPolicy', 'exclude', pol, t('Exclude', 'Dışla'), t('Only admissible replications form the distributions. With strong misspecifications few may remain.', 'Dağılımları yalnız uygun tekrarlar oluşturur. Güçlü yanlış belirtmelerde az tekrar kalabilir.'))}</div></div></section>`;
-  // signs of the misspecifications: only relevant when the model has a negative loading or factor correlation
+  // where the app departs from dynamic by default: the signs of the misspecifications (only with a negative loading
+  // or factor correlation) and Level 1 of one-factor models (only for 10, 11, 16, 17, … eligible items)
   const sg = P.design.signs;
   const anyNeg = !!(d.spec && (d.spec.by.some((x) => x.est < 0) || d.spec.with.some((w) => w.est < 0)));
-  const signCard = anyNeg || sg === 'dynamic' ? `<section class="card">${cardHead(t('Reverse-coded items', 'Ters kodlanmış maddeler'), t('Your model has a negative loading or factor correlation. In the dynamic package the cutoffs then depend on how the items happen to be coded (dynamic issue #7).', 'Modelinizde negatif bir yük ya da faktör korelasyonu var. dynamic paketinde bu durumda kesme değerleri maddelerin nasıl kodlandığına bağlı olur (dynamic issue #7).'))}
-    <div class="card-b"><div class="opt-grid-2">${opt('setSigns', 'invariant', sg, t('Invariant to coding · recommended', 'Kodlamaya duyarsız · önerilen'), t('Each misspecification takes the sign that keeps it the same if an item is reverse-coded; with positive loadings this equals dynamic.', 'Her yanlış belirtme, bir madde ters kodlansa da aynı kalacak işareti alır; yükler pozitifken dynamic ile aynıdır.'))}${opt('setSigns', 'dynamic', sg, t('As dynamic', 'dynamic gibi'), t('Positive cross-loadings and residual correlations, levels ordered by the signed loadings: reproduces the R package exactly.', 'Pozitif çapraz yükler ve artık korelasyonlar, işaretli yüklere göre sıralı düzeyler: R paketini birebir yeniden üretir.'))}</div></div></section>` : '';
+  const l1d = d.plan && d.plan.l1Differs ? d.plan.misspec : null;
+  let signCard = '';
+  if (anyNeg || l1d || sg === 'dynamic') {
+    const why = [anyNeg ? t('Your model has a negative loading or factor correlation; in the dynamic package the cutoffs then depend on how the items happen to be coded (dynamic issue #7).', 'Modelinizde negatif bir yük ya da faktör korelasyonu var; dynamic paketinde bu durumda kesme değerleri maddelerin nasıl kodlandığına bağlı olur (dynamic issue #7).') : '',
+      l1d ? t(`With ${l1d.k} items, Level 1 of McNeish & Wolf (2023a) adds ${l1d.paperL1} residual correlations (about one-third of the items); dynamic rounds down to ${l1d.dynL1}.`, `${l1d.k} maddede McNeish ve Wolf’un (2023a) 1. düzeyi ${l1d.paperL1} artık korelasyon ekler (maddelerin yaklaşık üçte biri); dynamic aşağı yuvarlayıp ${l1d.dynL1} ekler.`) : ''].filter(Boolean).join(' ');
+    const title = anyNeg && l1d ? t('Reverse-coded items and Level 1', 'Ters kodlanmış maddeler ve 1. düzey') : l1d ? t('Level 1 of one-factor models', 'Tek faktörlü modellerde 1. düzey') : t('Reverse-coded items', 'Ters kodlanmış maddeler');
+    const recLab = anyNeg ? t('Invariant to coding · recommended', 'Kodlamaya duyarsız · önerilen') : t('As the paper · recommended', 'Makaledeki gibi · önerilen');
+    const recTxt = [anyNeg ? t('Each misspecification takes the sign that keeps it the same if an item is reverse-coded; with positive loadings this equals dynamic.', 'Her yanlış belirtme, bir madde ters kodlansa da aynı kalacak işareti alır; yükler pozitifken dynamic ile aynıdır.') : '',
+      l1d ? t('Level 1 follows the formula of McNeish & Wolf (2023a).', '1. düzey McNeish ve Wolf’un (2023a) formülünü izler.') : ''].filter(Boolean).join(' ');
+    signCard = `<section class="card">${cardHead(title, why || t('The settings below only matter for models with negative loadings or for some one-factor models.', 'Aşağıdaki ayarlar yalnız negatif yüklü modellerde ya da bazı tek faktörlü modellerde fark yaratır.'))}
+    <div class="card-b"><div class="opt-grid-2">${opt('setSigns', 'invariant', sg, recLab, recTxt || t('Signs invariant to coding; Level 1 of one-factor models as in McNeish & Wolf (2023a).', 'Kodlamaya duyarsız işaretler; tek faktörlü modellerde 1. düzey McNeish ve Wolf’taki (2023a) gibi.'))}${opt('setSigns', 'dynamic', sg, t('As dynamic', 'dynamic gibi'), t('Positive cross-loadings and residual correlations, levels ordered by the signed loadings, one-factor Level 1 rounded down: reproduces the R package exactly.', 'Pozitif çapraz yükler ve artık korelasyonlar, işaretli yüklere göre sıralı düzeyler, tek faktörde aşağı yuvarlanan 1. düzey: R paketini birebir yeniden üretir.'))}</div></div></section>`;
+  }
   let prev;
   if (d.plan) {
     const p = d.plan;
