@@ -5,7 +5,9 @@
 // data generation and estimation are done by Mplus. Mplus Monte Carlo runs do not save CFI per replication, so
 // every condition is run twice with the same SEED (identical data sets): once with the analysis model and once
 // with the baseline (independence) model; CFI and TLI are computed from the two chi-square statistics exactly
-// as Mplus computes them. Same algorithm as dynamic_mplus.R (validated against dynamic).
+// as Mplus computes them. Same algorithm as dynamic_mplus.R (validated against dynamic). Beyond Monte Carlo error,
+// cutoffs can differ from dynamic's by about .001: dynamic's lavaan fits (std.lv = TRUE, rel.tol = .001) stop
+// slightly short of the ML minimum that Mplus reaches.
 // Plain ES module without DOM access: runs in the browser and in Node.
 
 export const LEVEL_SEP = '_';
@@ -202,7 +204,14 @@ const uniq = (a) => [...new Set(a)];
 /** {factors, items, higher, first}; throws an Error for models the method cannot handle. */
 export function structure(spec) {
   const by = spec.by;
-  const factors = uniq(by.map((x) => x.f));
+  const f0 = uniq(by.map((x) => x.f));
+  // Mplus needs `F1 BY …` before `G BY F1 …`: order the factors from the first order upward (stable otherwise)
+  const factors = [], left = [...f0];
+  while (left.length) {
+    const i = left.findIndex((f) => by.every((x) => x.f !== f || !f0.includes(x.ind) || factors.includes(x.ind)));
+    if (i < 0) throw new Error('The higher-order factors load on each other in a circle.');
+    factors.push(...left.splice(i, 1));
+  }
   const items = uniq(by.filter((x) => !factors.includes(x.ind)).map((x) => x.ind));
   const higher = uniq(by.filter((x) => factors.includes(x.ind)).map((x) => x.f));
   const names = [...items, ...factors];
@@ -252,9 +261,10 @@ function isPosDef(S) {
 /**
  * Standardized population model: every latent and observed variable has variance 1; disturbance and residual
  * variances are solved for; WITH values are (residual) correlations, as in Mplus STDYX output.
- * addBy: [{f, ind, est}] cross-loadings added; addRcov: [{a, b, cov}] residual covariances added between items.
+ * addBy: [{f, ind, est}] cross-loadings added; addRcov: [{a, b, cov}] residual covariances added between items;
+ * addPsi: [{a, b, r}] correlations added between the disturbances of two first-order factors (hier2).
  */
-export function population(spec, st = structure(spec), addBy = [], addRcov = []) {
+export function population(spec, st = structure(spec), addBy = [], addRcov = [], addPsi = []) {
   const fac = st.factors, it = st.items;
   const fi = Object.fromEntries(fac.map((f, i) => [f, i])), ii = Object.fromEntries(it.map((x, i) => [x, i]));
   const B = zeros(fac.length, fac.length), L = zeros(it.length, fac.length);
@@ -270,6 +280,7 @@ export function population(spec, st = structure(spec), addBy = [], addRcov = [])
     else if (w.a in ii && w.b in ii) { Rth[ii[w.a]][ii[w.b]] = w.est; Rth[ii[w.b]][ii[w.a]] = w.est; }
     else throw new Error(`WITH between a factor and an item is not supported: ${w.a} WITH ${w.b}.`);
   }
+  for (const r of addPsi) { Rpsi[fi[r.a]][fi[r.b]] = r.r; Rpsi[fi[r.b]][fi[r.a]] = r.r; }
   const IB = inverse(fac.map((_, i) => fac.map((__, j) => (i === j ? 1 : 0) - B[i][j])));
   const IBt = transpose(IB);
   const isEndo = fac.map((f) => endo.includes(f));
@@ -293,7 +304,7 @@ export function population(spec, st = structure(spec), addBy = [], addRcov = [])
   for (const r of addRcov) { Theta[ii[r.a]][ii[r.b]] = r.cov; Theta[ii[r.b]][ii[r.a]] = r.cov; }
   const Sigma = common.map((row, i) => row.map((x, j) => x + Theta[i][j]));
   if (!isPosDef(Sigma)) throw new Error('The population correlation matrix is not positive definite.');
-  return { fac, it, fi, ii, B, L, psi, Psi, Seta, theta, Theta, endo, addRcov };
+  return { fac, it, fi, ii, B, L, psi, Psi, Seta, theta, Theta, endo, addRcov, addPsi };
 }
 
 // ---------------------------------------------------------------- misspecifications (dynamic's rules)
@@ -303,8 +314,12 @@ const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
  * factor (factors with > 2 items first); (number of [first-order] factors − 1) levels; target = the factor with
  * the highest coefficient H whose pair with the item's factor is not used yet; magnitude = the loading, capped at
  * 95% of the largest cross-loading that keeps the item's residual variance positive.
+ * signs = 'invariant' (default): levels ordered by |loading| and each cross-loading signed as sign(loading × factor
+ * correlation), so that reverse-coding an item or reflecting a factor does not change the population misfit (the
+ * case the 95% bound assumes); identical to dynamic when loadings and factor correlations are positive.
+ * signs = 'dynamic': as dynamic (levels by signed loading, cross-loadings always positive; dynamic issue #7).
  */
-export function misspecHB(spec, st, type) {
+export function misspecHB(spec, st, type, signs = 'invariant') {
   const by = spec.by;
   let facs, rows, rcItems;
   if (type === 'hier') {
@@ -351,11 +366,14 @@ export function misspecHB(spec, st, type) {
     used.add([own, tgt].sort(byName).join('|'));
     sel.push({ item: x.ind, factor: own, target: tgt, loading: x.est, phi: R(own, tgt), H: H[tgt], priority: x.priority });
   }
-  sel.sort((a, b) => byName(a.priority, b.priority) || a.loading - b.loading || b.H - a.H);
+  const order = signs === 'dynamic' ? (s) => s.loading : (s) => Math.abs(s.loading);
+  sel.sort((a, b) => byName(a.priority, b.priority) || order(a) - order(b) || b.H - a.H);
   sel.forEach((s, i) => {
     const maxAllow = Math.round((Math.sqrt(s.loading ** 2 * s.phi ** 2 + 1 - s.loading ** 2) - Math.abs(s.loading * s.phi)) * 0.95 * 1e4) / 1e4;
     s.maxAllow = maxAllow;
     s.magnitude = Math.min(Math.abs(s.loading), Math.abs(maxAllow));
+    s.sign = signs === 'dynamic' ? 1 : Math.sign(s.loading * s.phi) || Math.sign(s.loading) || 1;
+    s.est = s.sign * s.magnitude;
     s.level = i + 1;
   });
   return sel;
@@ -364,8 +382,10 @@ export function misspecHB(spec, st, type) {
 /**
  * Residual correlations of .30 for one-factor models (cfaOne/catOne): items without residual covariances
  * sorted by |loading|, paired (2nd with 1st, 4th with 3rd, …); levels add 1/3, 2/3 and all of the pairs.
+ * signs = 'invariant' (default): each residual correlation is signed as sign(loading_a × loading_b), so that
+ * reverse-coding an item does not change the misfit; 'dynamic': always +.30 (dynamic issue #7).
  */
-export function misspecOne(spec, st) {
+export function misspecOne(spec, st, signs = 'invariant') {
   const rcItems = uniq([...spec.with.map((w) => w.a), ...spec.with.map((w) => w.b)]).filter((x) => st.items.includes(x));
   const nload = {};
   spec.by.forEach((x) => { nload[x.ind] = (nload[x.ind] || 0) + 1; });
@@ -377,11 +397,53 @@ export function misspecOne(spec, st) {
   const pairs = [];
   for (let i = 1; i < take; i += 2) {
     const a = solo[i].ind, b = solo[i - 1].ind;
-    pairs.push({ a, b, rcor: 0.3, cov: 0.3 * Math.sqrt(pop.theta[pop.ii[a]] * pop.theta[pop.ii[b]]) });
+    const rcor = signs === 'dynamic' ? 0.3 : 0.3 * (Math.sign(solo[i].est * solo[i - 1].est) || 1);
+    pairs.push({ a, b, rcor, cov: rcor * Math.sqrt(pop.theta[pop.ii[a]] * pop.theta[pop.ii[b]]) });
   }
   const L3 = Math.floor(k / 2);
+  // Level 1 rounds down as in dynamic; the formula of McNeish & Wolf (2023a, p. 56) rounds (⌊L3/3 + .5⌋), which
+  // gives one pair more when L3 mod 3 = 2 (10, 11, 16, 17, … items)
   const levels = k === 4 ? [1] : k === 5 ? [1, 2] : [Math.floor(L3 / 3), Math.floor((2 * L3) / 3), L3];
-  return { pairs, levels };
+  const paperL1 = k < 6 ? levels[0] : Math.floor(L3 / 3 + 0.5);
+  return { pairs, levels, k, paperL1 };
+}
+
+/**
+ * Structural misspecification of second-order models (dynamic's hier2; McNeish & Manapat, 2024): correlations of
+ * .50 between the disturbances of pairs of first-order factors. Eligible: first-order factors that load on exactly
+ * one second-order factor and have no disturbance correlation in the model (dynamic would silently drop a duplicate
+ * pair). They are sorted by |second-order loading| (stable) and paired 2nd with 1st, 4th with 3rd, …; levels add
+ * floor(L3/3), floor(2·L3/3) and L3 = floor(k/2) pairs. With 4 or 5 eligible factors two levels (1 and 2 pairs),
+ * as McNeish & Manapat (2024) describe; dynamic stops with an error for exactly 4. With fewer than 4 first-order
+ * factors their covariance matrix is saturated and nothing can be tested.
+ * signs = 'invariant': each correlation is signed as sign(γa·γb) (times the correlation of the two second-order
+ * factors when they differ), so that reflecting a factor does not change the misfit; 'dynamic': always +.50.
+ * → {pairs: [{a, b, r}], levels: [pairs per level], k, reason: null | 'saturated' | 'few'}
+ */
+export function misspecHier2(spec, st, signs = 'invariant') {
+  const none = (reason) => ({ pairs: [], levels: [], k: 0, reason });
+  if (st.first.length < 4) return none('saturated');
+  const gam = spec.by.filter((x) => st.higher.includes(x.f) && st.first.includes(x.ind));
+  const cnt = {};
+  gam.forEach((x) => { cnt[x.ind] = (cnt[x.ind] || 0) + 1; });
+  const corr = new Set();
+  spec.with.forEach((w) => { if (st.first.includes(w.a) && st.first.includes(w.b)) { corr.add(w.a); corr.add(w.b); } });
+  const sorted = gam.filter((x) => cnt[x.ind] === 1 && !corr.has(x.ind))
+    .map((x, i) => ({ ...x, i })).sort((a, b) => Math.abs(a.est) - Math.abs(b.est) || a.i - b.i);
+  const k = sorted.length;
+  if (k < 4) return { ...none('few'), k };
+  const pop = population(spec, st);
+  const take = k <= 5 ? 4 : Math.floor(k / 2) * 2;
+  const pairs = [];
+  for (let i = 1; i < take; i += 2) {
+    const a = sorted[i], b = sorted[i - 1];
+    const phiG = a.f === b.f ? 1 : pop.Seta[pop.fi[a.f]][pop.fi[b.f]];
+    const r = signs === 'dynamic' ? 0.5 : 0.5 * (Math.sign(a.est * b.est * phiG) || 1);
+    pairs.push({ a: a.ind, b: b.ind, r });
+  }
+  const L3 = Math.floor(k / 2);
+  const levels = k <= 5 ? [1, 2] : [Math.floor(L3 / 3), Math.floor((2 * L3) / 3), L3];
+  return { pairs, levels, k, reason: null };
 }
 
 // ---------------------------------------------------------------- Mplus input files
@@ -397,9 +459,15 @@ function popLines(spec, st, pop, addBy, catItems) {
   }
   st.factors.forEach((f, i) => out.push(`  ${f}*${fmt(pop.psi[i], 6)};`));
   const exo = st.factors.filter((f) => !pop.endo.includes(f));
+  const addedPsi = new Set((pop.addPsi || []).map((r) => [r.a, r.b].sort(byName).join('|')));
   for (let i = 0; i < st.factors.length; i++) for (let j = i + 1; j < st.factors.length; j++) {
     const v = pop.Psi[i][j];
+    if (addedPsi.has([st.factors[i], st.factors[j]].sort(byName).join('|'))) continue;
     if (v !== 0 || (exo.includes(st.factors[i]) && exo.includes(st.factors[j]))) out.push(`  ${st.factors[i]} WITH ${st.factors[j]}*${fmt(v, 6)};`);
+  }
+  if (addedPsi.size) {
+    out.push('  ! misspecification (not in the analysis model):');
+    pop.addPsi.forEach((r) => out.push(`  ${r.a} WITH ${r.b}*${fmt(pop.Psi[pop.fi[r.a]][pop.fi[r.b]], 6)};`));
   }
   st.items.forEach((x, i) => out.push(`  ${x}*${fmt(pop.theta[i], 6)};`));
   const added = new Set((pop.addRcov || []).map((r) => [r.a, r.b].sort(byName).join('|')));
@@ -455,9 +523,22 @@ export const DEFAULTS = { reps: 500, nmax: 2000, seedTrue: 267326, seedMisspec: 
  *    misspec, files: [{name, text, level, kind, out, res}]}
  */
 export function planDfi(spec, opts = {}) {
-  const o = { ...DEFAULTS, type: 'auto', dataType: 'auto', ...opts };
+  const o = { ...DEFAULTS, type: 'auto', dataType: 'auto', signs: 'invariant', ...opts };
+  const signs = o.signs === 'dynamic' ? 'dynamic' : 'invariant';
   const st = structure(spec);
   if (!fin(spec.n) || spec.n < 2) throw new Error('The sample size is unknown.');
+  // degrees of freedom of the analysis model (Mplus default identification: first loading fixed, exogenous factors
+  // correlated); with none the model cannot misfit, and dynamic stops (as does McNeish & Wolf, 2023a, fn. 6)
+  {
+    const pairs = new Set();
+    const exo = st.factors.filter((f) => !spec.by.some((x) => x.ind === f));
+    for (let i = 0; i < exo.length; i++) for (let j = i + 1; j < exo.length; j++) pairs.add([exo[i], exo[j]].sort(byName).join('|'));
+    spec.with.filter((w) => !(w.fixed && w.est === 0)).forEach((w) => pairs.add([w.a, w.b].sort(byName).join('|')));
+    // p(p+1)/2 moments − [(loadings − factors) + factor (disturbance) variances + p residual variances + covariances]
+    const p = st.items.length;
+    const df = (p * (p + 1)) / 2 - (spec.by.length - st.factors.length + st.factors.length + p + pairs.size);
+    if (df <= 0) throw new Error(`The model has no degrees of freedom (df = ${df}), so its fit cannot be tested and there are no dynamic cutoffs.`);
+  }
   let dataType = o.dataType;
   if (dataType === 'auto') dataType = spec.thr.length ? 'categorical' : 'continuous';
   if (dataType === 'categorical' && !spec.thr.length) throw new Error('Categorical data need thresholds (a WLSMV model or thresholds entered by hand).');
@@ -473,14 +554,37 @@ export function planDfi(spec, opts = {}) {
   if (type === 'multi' && st.factors.length < 2) throw new Error('A multi-factor analysis needs at least two factors.');
   if (type === 'hier' && !st.higher.length) throw new Error('A higher-order analysis needs a higher-order factor.');
 
-  let levels, misspec;
+  let levels, misspec, signSensitive;
   if (type === 'one') {
-    misspec = misspecOne(spec, st);
-    levels = misspec.levels.map((k, i) => ({ level: i + 1, addBy: [], addRcov: misspec.pairs.slice(0, k), added: `${k} residual correlation${k > 1 ? 's' : ''} (.30)` }));
+    misspec = misspecOne(spec, st, signs);
+    levels = misspec.levels.map((k, i) => {
+      const pr = misspec.pairs.slice(0, k);
+      return { level: i + 1, addBy: [], addRcov: pr, added: `${k} residual correlation${k > 1 ? 's' : ''} (${pr.some((x) => x.rcor < 0) ? '±' : ''}.30)` };
+    });
+    const sgn = Object.fromEntries(spec.by.map((x) => [x.ind, Math.sign(x.est)]));
+    signSensitive = misspec.pairs.some((x) => sgn[x.a] * sgn[x.b] < 0);
   } else {
-    misspec = misspecHB(spec, st, type);
-    levels = misspec.map((s, i) => ({ level: i + 1, addBy: misspec.slice(0, i + 1).map((x) => ({ f: x.target, ind: x.item, est: x.magnitude })), addRcov: [], added: `${s.target} BY ${s.item} (${f3(s.magnitude)})` }));
+    misspec = misspecHB(spec, st, type, signs);
+    levels = misspec.map((s, i) => ({ level: i + 1, addBy: misspec.slice(0, i + 1).map((x) => ({ f: x.target, ind: x.item, est: x.est })), addRcov: [], added: `${s.target} BY ${s.item} (${f3(s.est).replace(/^-/, '−')})` }));
+    signSensitive = misspec.some((s) => s.loading < 0 || s.phi < 0);
   }
+  // second-order models: structural misspecification as well (hier2), as levels S1, S2, … on the same correct model
+  let slevels = [], structural = null;
+  if (type === 'hier') {
+    const s = misspecHier2(spec, st, signs);
+    structural = { k: s.k, reason: s.reason, note: null };
+    for (const [i, k] of s.levels.entries()) {
+      const pr = s.pairs.slice(0, k);
+      try { population(spec, st, [], [], pr); } catch (e) { structural.note = e.message; break; } // inadmissible: stop here
+      // the label names what this level adds to the previous one, as for the cross-loading levels
+      const nw = pr.slice(i ? s.levels[i - 1] : 0);
+      slevels.push({ level: i + 1, addBy: [], addRcov: [], addPsi: pr, added: `${nw.map((x) => `${x.a} WITH ${x.b}`).join(', ')} (${nw.some((x) => x.r < 0) ? '±' : ''}.50)` });
+    }
+    if (misspecHier2(spec, st, 'invariant').pairs.some((x) => x.r < 0)) signSensitive = true;
+  }
+  // the cutoff rule of the main table: dynamic's categorical functions (catOne/catHB) and McNeish (2023) keep 95%
+  // specificity and lower the sensitivity; the omitted-path papers and hier1HB use 95/5 with a 90/10 fallback
+  const rule = dataType === 'categorical' && type !== 'hier' ? 'sens' : 'hb';
   const nSim = Math.min(Math.round(spec.n), o.nmax);
   const ana = analysisLines(spec, st);
   // the empirical model was fit without a mean structure (readMplusOut): simulate the same way, or SRMR differs
@@ -489,24 +593,25 @@ export function planDfi(spec, opts = {}) {
   const cont = st.items.filter((x) => !catItems.includes(x));
   const base = cont.length ? wrapStmt(`${cont.join(' ')};`) : [];
   const files = [];
-  const all = [{ level: 0, addBy: [], addRcov: [] }, ...levels];
+  const all = [{ level: 0, addBy: [], addRcov: [], family: 'm' }, ...levels.map((l) => ({ ...l, family: 'm' })), ...slevels.map((l) => ({ ...l, family: 's' }))];
   for (const lv of all) {
-    const pop = population(spec, st, lv.addBy, lv.addRcov);
+    const pop = population(spec, st, lv.addBy, lv.addRcov, lv.addPsi || []);
     const pl = popLines(spec, st, pop, lv.addBy, catItems);
     const seed = lv.level === 0 ? o.seedTrue : o.seedMisspec;
-    const lab = lv.level === 0 ? 'true model (Level 0)' : `Level ${lv.level} misspecification`;
+    const s = lv.family === 's';
+    const lab = lv.level === 0 ? 'true model (Level 0)' : s ? `structural level ${lv.level} misspecification` : `Level ${lv.level} misspecification`;
     for (const kind of ['model', 'base']) {
-      const stem = `dfi_L${lv.level}_${kind}`;
+      const stem = `dfi_${s ? 'S' : 'L'}${lv.level}_${kind}`;
       const res = `${stem}_res.dat`;
-      const meta = o.meta ? { ...o.meta, dfi: { level: lv.level, kind } } : null;
+      const meta = o.meta ? { ...o.meta, dfi: { level: lv.level, family: lv.family, kind } } : null;
       const text = mcInput({
         title: `DFI ${lab}, ${kind === 'model' ? 'analysis model' : 'baseline model'}`, items: st.items, catItems, nthr,
         n: nSim, reps: o.reps, seed, results: res, pop: pl, estimator, analysis: analysisOpts, model: kind === 'model' ? ana : base, meta,
       });
-      files.push({ name: `${stem}.inp`, out: `${stem}.out`, res, text, level: lv.level, kind });
+      files.push({ name: `${stem}.inp`, out: `${stem}.out`, res, text, level: lv.level, kind, family: lv.family });
     }
   }
-  return { type, dataType, estimator, noMeans, n: spec.n, nSim, reps: o.reps, nmax: o.nmax, seeds: { true: o.seedTrue, misspec: o.seedMisspec }, st, catItems, levels, misspec, files };
+  return { type, dataType, estimator, noMeans, rule, signs, signSensitive, n: spec.n, nSim, reps: o.reps, nmax: o.nmax, seeds: { true: o.seedTrue, misspec: o.seedMisspec }, st, catItems, levels, slevels, structural, misspec, files };
 }
 
 // ---------------------------------------------------------------- reading the Monte Carlo runs
@@ -650,32 +755,55 @@ export function summarizeDfi(plan, runs, policy = 'include') {
     byLevel[L] = combineLevel(L, m, b);
     rows.push(...byLevel[L]);
   }
+  for (const l of plan.slevels || []) { // structural levels of second-order models: keys S1, S2, …
+    const key = `S${l.level}`;
+    byLevel[key] = combineLevel(key, parsed[`dfi_S${l.level}_model.inp`], parsed[`dfi_S${l.level}_base.inp`]);
+    rows.push(...byLevel[key]);
+  }
   const use = (rs) => (policy === 'exclude' ? rs.filter((x) => !x.improper) : rs);
   const T = use(byLevel[0]);
-  const out = { ok: true, error: null, policy, rows, reps: plan.reps };
+  const out = { ok: true, error: null, policy, rule: plan.rule || 'hb', rows, reps: plan.reps };
   out.level0 = { completed: byLevel[0].length, improper: byLevel[0].filter((x) => x.improper).length, used: T.length, spec: {} };
   INDICES.forEach((idx) => { out.level0.spec[idx] = idx === 'cfi' ? quantile(col(T, 'cfi'), 0.05) : quantile(col(T, idx), 0.95); });
-  out.levels = plan.levels.map((l) => {
-    const M = use(byLevel[l.level]);
+  const cuts = (l, key) => {
+    const M = use(byLevel[key]);
     const hb = {}, sens = {};
     INDICES.forEach((idx) => {
       hb[idx] = M.length >= 2 && T.length >= 2 ? hbCutoff(M, T, idx) : { value: NaN, rule: null };
       sens[idx] = M.length >= 2 && T.length >= 2 ? sensCutoff(M, T, idx) : { value: NaN, sens: 0 };
     });
-    return { level: l.level, added: l.added, completed: byLevel[l.level].length, improper: byLevel[l.level].filter((x) => x.improper).length, used: M.length, hb, sens };
-  });
+    return { level: l.level, key, added: l.added, completed: byLevel[key].length, improper: byLevel[key].filter((x) => x.improper).length, used: M.length, hb, sens };
+  };
+  out.levels = plan.levels.map((l) => cuts(l, l.level));
+  out.slevels = (plan.slevels || []).map((l) => cuts(l, `S${l.level}`));
   out.byLevel = byLevel;
   return out;
 }
 
-/** Where the empirical fit falls relative to the cutoffs: [{idx, value, beyond: k (0 = within Level 1), cut: [...]}]. */
-export function interpret(emp, summary, rule = 'hb') {
+/**
+ * Where the empirical fit falls relative to the cutoffs: [{idx, value, beyond: k (the levels with a cutoff are
+ * exceeded up to level k, and the next one with a cutoff is not; 0 = within the first), top: the highest level with
+ * a cutoff, cut: [...], any}].
+ */
+export function interpret(emp, summary, rule = summary && summary.rule ? summary.rule : 'hb', family = 'm') {
   if (!emp || !summary || !summary.ok) return [];
+  const levels = family === 's' ? summary.slevels || [] : summary.levels;
+  if (!levels.length) return [];
   return INDICES.map((idx) => {
     const e = emp[idx];
-    const cut = summary.levels.map((l) => (rule === 'hb' ? l.hb[idx].value : l.sens[idx].value));
+    const cut = levels.map((l) => (rule === 'hb' ? l.hb[idx].value : l.sens[idx].value));
+    // as in McNeish & Wolf (2023a, Table 10): the index is read at the first level whose cutoff it passes, so beyond =
+    // the last level exceeded before that one (levels with NONE are skipped; cutoffs of neighbouring levels can
+    // swap order through Monte Carlo error)
+    // compared as printed (three decimals), so that the text never says ".038 exceeded the cutoff of .038"; a value
+    // equal to the cutoff passes, as in the paper's notation (RMSEA ≤ .038, CFI ≥ .986)
+    const r3 = (x) => Math.round(x * 1000) / 1000;
     let beyond = 0;
-    cut.forEach((c, i) => { if (fin(c) && fin(e) && (idx === 'cfi' ? e < c : e > c)) beyond = i + 1; });
-    return { idx, value: e, beyond, cut, any: cut.some(fin) };
+    if (fin(e)) for (let i = 0; i < cut.length; i++) {
+      if (!fin(cut[i])) continue;
+      if (idx === 'cfi' ? r3(e) < r3(cut[i]) : r3(e) > r3(cut[i])) beyond = i + 1; else break;
+    }
+    const top = cut.reduce((a, c, i) => (fin(c) ? i + 1 : a), 0); // the highest level with a cutoff (NONE skipped)
+    return { idx, value: e, beyond, top, cut, any: cut.some(fin) };
   });
 }

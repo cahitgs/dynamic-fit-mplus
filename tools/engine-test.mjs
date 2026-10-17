@@ -12,6 +12,7 @@
 //   3. Mplus: the reference DFI of the A-SAGS hand-entry example (continuous ML, 500 replications, N = 492)
 //      must reproduce the cutoffs validated against the R package (same seeds → identical Mplus results).
 //   4. Mplus: a short ordinal (WLSMV) DFI from the sample CFA (50 replications) must complete.
+//   5. Mplus: a second-order model entered with the second-order statement first must run (20 replications).
 // Exit code 1 when a check fails; without Mplus only the JavaScript checks run.
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -53,6 +54,39 @@ check(Math.abs(D.cfiOf(13.392, 8, 302.029, 15) - 0.98121) < 1e-4, 'CFI from mode
 const one = { ...D.parseStdModel('F =~ .42*x1 + .21*x2 + .20*x3 + .85*x4 + .85*x5 + .84*x6'), n: 301 };
 const p1 = D.planDfi(one, {});
 check(p1.type === 'one' && p1.levels.map((l) => l.addRcov.length).join(',') === '1,2,3', `one-factor model: 1, 2, 3 residual correlations (got ${p1.levels.map((l) => l.addRcov.length).join(',')})`);
+check(planA.slevels.length === 0 && planA.structural.reason === 'saturated', 'A-SAGS: no structural levels (3 first-order factors: saturated)');
+const dfErr = (txt) => { try { D.planDfi({ ...D.parseStdModel(txt), n: 300 }, {}); return ''; } catch (e) { return e.message; } };
+check(/df = 0/.test(dfErr('F =~ .7*a + .6*b + .5*c')) && !dfErr('F1 =~ .7*a + .6*b\nF2 =~ .7*c + .6*d\nF1 ~~ .3*F2'), 'models without degrees of freedom are refused (3-item one-factor: df = 0; 2 × 2 items: df = 1 runs)');
+// hier2 (structural misspecification) against dynamic: pairs and disturbance covariances of a 6-factor model
+const H6SRC = `G =~ .51*F1 + .83*F2 + .97*F3 + .83*F4 + .87*F5 + .75*F6
+F1 =~ .41*Y1 + .81*Y2 + .71*Y3
+F2 =~ .79*Y4 + .64*Y5 + .81*Y6
+F3 =~ .53*Y8 + .68*Y9 + .66*Y10
+F4 =~ .79*Y11 + .76*Y12 + .70*Y7
+F5 =~ .82*Y13 + .71*Y14 + .85*Y15
+F6 =~ .7*Y16 + .6*Y17 + .65*Y18`;
+const H6 = { ...D.parseStdModel(H6SRC), n: 500 };
+const pH = D.planDfi(H6, {});
+const sl = pH.slevels.map((l) => l.addPsi.map((x) => `${x.a}-${x.b}`).join(',')).join(' | ');
+check(sl === 'F6-F1 | F6-F1,F4-F2 | F6-F1,F4-F2,F3-F5', `hier2 pairs match dynamic (${sl})`);
+const s3 = pH.files.find((f) => f.family === 's' && f.level === 3 && f.kind === 'model').text;
+const cov = ['F6 WITH F1', 'F4 WITH F2', 'F3 WITH F5'].map((w) => Number((s3.match(new RegExp(`${w}\\*(-?[\\d.]+);`)) || [])[1]));
+check(Math.abs(cov[0] - 0.284476) < 2e-6 && Math.abs(cov[1] - 0.15555) < 2e-6 && Math.abs(cov[2] - 0.059932) < 2e-6, `hier2 disturbance covariances match dynamic (${cov.map((x) => x.toFixed(6)).join(', ')})`);
+// the second-order statement entered first (as in dynamic's examples): Mplus needs F1 BY … before G BY F1 …
+const byOrder = (txt) => ['MODEL POPULATION:', '\nMODEL:'].every((sec) => {
+  const t = txt.slice(txt.indexOf(sec), sec === '\nMODEL:' ? undefined : txt.indexOf('\nANALYSIS:'));
+  const f1 = t.search(/\n {2}F1 BY/), g = t.search(/\n {2}G BY/);
+  return f1 >= 0 && f1 < g;
+});
+check(pH.files.every((f) => f.kind === 'base' || byOrder(f.text)), 'second-order factor entered first: its BY statement is written after those of the first-order factors');
+const lines6 = H6SRC.split('\n');
+const pHl = D.planDfi({ ...D.parseStdModel([...lines6.slice(1), lines6[0]].join('\n')), n: 500 }, {});
+check(JSON.stringify([pH.misspec, pH.slevels]) === JSON.stringify([pHl.misspec, pHl.slevels]), 'the misspecifications do not depend on the order of the statements');
+// reverse-coding an item must not change the population misfit (signs = 'invariant'; dynamic issue #7)
+const HS = 'F1 =~ .772*X1 + .424*X2 + .581*X3\nF2 =~ .852*X4 + .855*X5 + .838*X6\nF3 =~ .570*X7 + .723*X8 + .665*X9\nF1 ~~ .459*F2\nF1 ~~ .471*F3\nF2 ~~ .283*F3';
+const sigma = (txt) => { const s = { ...D.parseStdModel(txt), n: 301 }; const st = D.structure(s); const pl = D.planDfi(s, {}); return pl.levels.map((lv) => { const p = D.population(s, st, lv.addBy, lv.addRcov); return p.it.map((_, i) => p.it.map((__, j) => { let v = p.Theta[i][j]; for (let a = 0; a < p.fac.length; a++) for (let b = 0; b < p.fac.length; b++) v += p.L[i][a] * p.Seta[a][b] * p.L[j][b]; return Math.abs(v); })); }); };
+const sA = sigma(HS), sB = sigma(HS.replace('.424*X2', '-.424*X2').replace('.570*X7', '-.570*X7'));
+check(sA.every((m, k) => m.every((r, i) => r.every((v, j) => Math.abs(v - sB[k][i][j]) < 1e-12))), 'reverse-coded items leave the population misfit unchanged');
 
 const csvText = await fs.readFile(path.join(ROOT, 'data', 'sample.csv'), 'utf8');
 const table = parseTable(csvText);
@@ -145,6 +179,14 @@ if (cfa) {
     check([sum.level0, ...sum.levels].every((l) => l.completed >= 45), `replications completed: ${[sum.level0.completed, ...sum.levels.map((l) => l.completed)].join(' / ')} of 50 · ${(t / 1000).toFixed(1)} s`);
     console.log(`        cutoffs (95/5): ${sum.levels.map(row).join(' | ')} · improper: ${sum.levels.map((l) => l.improper).join(' / ')}`);
   }
+}
+
+// ---------- 5. second-order model entered with the second-order statement first ----------
+console.log('\nSecond-order model, second-order statement first (ML, 20 replications, with structural levels)');
+{
+  const plan = D.planDfi(H6, { reps: 20 });
+  const { sum, ms: t } = await runPlan(plan, path.join(BASE, 'gfirst'));
+  check(sum.ok && [sum.level0, ...sum.levels, ...sum.slevels].every((l) => l.completed >= 15), sum.ok ? `${plan.files.length} Mplus runs completed (${plan.levels.length} levels, ${plan.slevels.length} structural) · ${(t / 1000).toFixed(1)} s` : sum.error);
 }
 
 if (!KEEP && !arg('dir')) await fs.rm(BASE, { recursive: true, force: true }).catch(() => {});

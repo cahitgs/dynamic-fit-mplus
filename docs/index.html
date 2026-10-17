@@ -98,7 +98,7 @@
   <div class="grid">
     <div class="card"><h3>Three ways in</h3><p>Raw data (the app fits your CFA in Mplus first), an Mplus output file, or standardized estimates typed in from a paper.</p></div>
     <div class="card"><h3>One-factor, multi-factor, second-order</h3><p>Continuous items as normal data with ML, or ordinal items generated from the estimated thresholds and analyzed with WLSMV.</p></div>
-    <div class="card"><h3>The rules of dynamic</h3><p>Misspecifications as in the dynamic R package: omitted cross-loadings, or residual correlations of .30 in one-factor models.</p></div>
+    <div class="card"><h3>The rules of dynamic</h3><p>Misspecifications as in the dynamic R package: omitted cross-loadings, residual correlations of .30 in one-factor models, and disturbance correlations in second-order models. Reverse-coded items do not change them.</p></div>
     <div class="card"><h3>CFI in every replication</h3><p>Mplus 8.3 Monte Carlo does not report CFI, so each condition is rerun with the baseline model on the same seed.</p></div>
     <div class="card"><h3>Improper solutions in the open</h3><p>Replications with a non–positive definite covariance matrix (TECH9) are counted; keep them, as dynamic does, or exclude them.</p></div>
     <div class="card"><h3>A paper draft, not just numbers</h3><p>APA 7 method, results, tables, a figure in black and white or color, and references. Every Mplus file is one click away.</p></div>
@@ -131,7 +131,7 @@ node serve.mjs --open</pre></div>
 
 <section class="wrap" aria-labelledby="cite">
   <h2 id="cite">How to cite</h2>
-  <blockquote>Marangoz, M. C. (2026). <i>Dynamic Fit for Mplus</i> (Version 1.0.0) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus</blockquote>
+  <blockquote>Marangoz, M. C. (2026). <i>Dynamic Fit for Mplus</i> (Version 1.0.1) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus</blockquote>
   <p class="fine" style="margin-top:12px">Please cite the method papers as well:</p>
   <div class="refs" style="margin-top:10px">
     <p>McNeish, D., &amp; Wolf, M. G. (2023a). Dynamic fit index cutoffs for confirmatory factor analysis models. <i>Psychological Methods, 28</i>(1), 61–88. <a href="https://doi.org/10.1037/met0000425">https://doi.org/10.1037/met0000425</a></p>

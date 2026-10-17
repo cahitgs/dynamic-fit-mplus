@@ -17,6 +17,7 @@ En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını 
    - Veri üretimi: sıralı/WLSMV ya da `dynamic` gibi normal/ML.
    - Tekrar sayısı: varsayılan 500.
    - Uygunsuz çözümler: varsayılan "Retain" (dynamic gibi). Bu ayarı değiştirmek yeniden çalıştırma gerektirmez.
+   - Kesme kuralı model türünden gelir: sürekli maddeler ve ikinci düzey modellerde 90/10 yedekli 95/5; sıralı tek ve çok faktörlü modellerde %95 özgüllükte en yüksek duyarlılık (`catOne`/`catHB` gibi). Öteki kural Tablo 3'te verilir.
 4. **Run:** CSV yolunda önce CFA, ardından düzey başına iki Monte Carlo koşusu çalışır: hipotez modeli ve CFI için temel model, aynı veride.
 5. **Report:** Yöntem, yük tablosu, uyum ve kesme değerleri (Tablo 2), simülasyon koşulları ve uygunsuz çözüm sayıları (Tablo 3), dağılım şekli. Yazdırılabilir, HTML ve tekrar verisi (CSV) olarak indirilebilir.
 
@@ -43,10 +44,12 @@ Ayrıca:
 ## Sınırlar
 
 - Tek grup, CFA ve ikinci düzey modeller desteklenir. Regresyon (ON), bifaktör ve çok gruplu modeller yoktur.
-- İkinci düzey modellerde yapısal yanlış belirtme (atlanmış bozulma korelasyonları; `dynamic`'teki `hier2`) yoktur.
+- İkinci düzey modellerde yapısal yanlış belirtme (`hier2`) en az dört birinci düzey faktör gerektirir; tam dört faktörde McNeish ve Manapat'ın (2024) tarif ettiği iki düzey kullanılır (`dynamic` bu durumda hata verir).
 - Sürekli veri çok değişkenli normal üretilir; eksik veri örüntüsü ve normal dışılık yeniden üretilmez.
-- `dynamic`'te olduğu gibi eklenen çapraz yükler pozitiftir (`dynamic` issue #7); ters kodlu maddeleri analizden önce yeniden kodlayın.
+- Ters kodlu maddeler kesme değerlerini değiştirmez: yanlış belirtmeler kodlamaya duyarsız işaret alır (yükler pozitifken `dynamic` ile aynı). Ayarlar'daki "As dynamic" seçeneği paketi birebir yeniden üretir (`dynamic` issue #7).
 - Eşitlik kısıtları simülasyonun analiz modelinde serbest bırakılır (`dynamic`'te olduğu gibi).
+- Serbestlik derecesi 0 olan modeller reddedilir; uyumları sınanamaz.
+- Tek faktörlü modellerde 1. düzey, `dynamic` gibi aşağı yuvarlanır; McNeish ve Wolf'un (2023a) formülü yuvarlar ve 10, 11, 16, 17, 22, 23, 28, 29 maddede bir korelasyon fazla verir. Rapor bunu yazar.
 - Mplus değişken adları en çok 8 karakterdir.
 
 ## Lisans ve kaynak

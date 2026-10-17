@@ -11,13 +11,15 @@ How large SRMR, RMSEA and CFI become under a given misspecification depends on t
 - **Three ways in:** raw data (CSV; the app fits the CFA in Mplus first), an Mplus output file (`.out` with `OUTPUT: STDYX;`), or standardized estimates typed in from a paper.
 - **Models:** one-factor, multi-factor and second-order CFA. Continuous items are simulated as multivariate normal and analyzed with ML. Ordinal items are generated from the estimated thresholds and analyzed with WLSMV.
 - **Misspecifications as in the dynamic R package** (Wolf & McNeish, 2023):
-  - Multi-factor and second-order models: omitted cross-loadings (McNeish & Wolf, 2023a; McNeish & Manapat, 2024).
-  - One-factor models: omitted residual correlations of .30 (McNeish & Wolf, 2023b).
+  - Multi-factor models: omitted cross-loadings (McNeish & Wolf, 2023a). Second-order models: omitted cross-loadings on the first-order factors (McNeish & Manapat, 2024).
+  - Second-order models with four or more first-order factors, in addition: omitted correlations of .50 between first-order disturbances (structural misspecification; McNeish & Manapat, 2024; dynamic's `hier2`).
+  - One-factor models: omitted residual correlations of .30 (McNeish & Wolf, 2023a, 2023b). As in dynamic, Level 1 rounds the number of correlations down; the formula printed in McNeish & Wolf (2023a) rounds, which gives one more with 10, 11, 16, 17, 22, 23, 28 or 29 items. The report says so when it applies.
+- **Reverse-coded items do not change the cutoffs.** Each misspecification takes the sign that keeps it the same when an item is reverse-coded or a factor is reflected. The papers and dynamic always add positive values, so with positive loadings the two are identical. A setting reproduces the papers and dynamic exactly instead (dynamic issue #7).
 - **CFI for every replication.** Mplus 8.3 does not report CFI for Monte Carlo studies (McNeish & Wolf, 2023a, Appendix B). The app therefore runs every condition a second time with the baseline model on the same seed, and computes CFI from the two chi-square statistics as Mplus does.
 - **Improper solutions are counted.** Replications whose residual or latent covariance matrix is not positive definite (Mplus TECH9) are reported for every condition. You choose whether they are retained, as in dynamic, or excluded.
-- **Two cutoff rules, both reported:**
-  - Table 2: the 95/5 rule with a 90/10 fallback (McNeish & Wolf, 2023a, 2023b; dynamic's `hier1HB`).
-  - Table 3: the highest sensitivity that keeps 95% specificity, reported as NONE below 50% sensitivity (McNeish, 2023; McNeish & Wolf, 2024; dynamic's `cfaOne`, `cfaHB`, `catOne` and `catHB` on GitHub, commit 90aa51f).
+- **Two cutoff rules, both reported** (the main one in Table 2, the other in Table 3):
+  - The 95/5 rule with a 90/10 fallback (McNeish & Wolf, 2023a, 2023b; dynamic's `hier1HB` and `hier2`): the main rule for continuous items and for second-order models.
+  - The highest sensitivity that keeps 95% specificity, reported as NONE below 50% sensitivity (McNeish, 2023; McNeish & Wolf, 2024; dynamic's `cfaOne`, `cfaHB`, `catOne` and `catHB` on GitHub, commit 90aa51f): the main rule for ordinal one- and multi-factor models, as in dynamic's `catOne` and `catHB`.
 - **Every Mplus file is readable in the app.** Inputs and outputs open in a side sheet. Errors, warnings and improper solutions are highlighted, and a bar jumps to the fit, results, STDYX and TECH9 sections.
 - **Report:**
   - Method and results text.
@@ -70,7 +72,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 ## Validation
 
-- **Misspecifications:** the app adds the same cross-loadings as dynamic's `multi_add_HB` and `multi_add_hier` (item, target factor and magnitude) and the same residual-correlation pairs as `one_add`. This was checked on the package's own examples and further test models, including models with negative loadings.
+- **Misspecifications:** the app adds the same cross-loadings as dynamic's `multi_add_HB` and `multi_add_hier` (item, target factor and magnitude), the same residual-correlation pairs as `one_add`, and the same disturbance-correlation pairs and covariances as `hier2`. This was checked on the package's own examples and further test models; with the "as dynamic" sign setting it also holds for models with negative loadings.
 - **Cutoff rules:** applied to dynamic's own simulated fit distributions, the app's two rules reproduce every cutoff that dynamic prints (33 of 33 cells).
 - **Appendix B of McNeish & Wolf (2023a):** with the same Mplus options (`MODEL = NOMEANSTRUCTURE; INFORMATION = EXPECTED;`) and seed (1981), the app's Monte Carlo inputs reproduce the appendix's simulation replication by replication.
 - **Self-test:** `node tools/engine-test.mjs` checks the engine, runs the sample CFA in Mplus in an ASCII folder, a folder with Turkish letters and spaces, and through an ASCII temporary copy, runs a short ordinal DFI, and reproduces a 500-replication reference DFI of the A-SAGS model (`--quick` skips the reference DFI).
@@ -85,16 +87,17 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 ## Limitations
 
 - **Model types:** single-group CFA and second-order models only. Bifactor, structural (ON) and multiple-group models are not supported.
-- **Second-order models:** structural misspecification (omitted disturbance correlations; `hier2` in dynamic) is not implemented.
+- **Second-order models:** structural misspecification needs at least four first-order factors (with fewer, their covariance matrix is saturated). With exactly four, the two levels described by McNeish and Manapat (2024) are used; dynamic's `hier2` stops with an error in that case.
 - **Data:** continuous data are simulated as multivariate normal. Missing-data patterns and non-normality are not reproduced.
-- **Signs:** as in dynamic, added cross-loadings are positive (see dynamic issue #7). Recode reverse-worded items before the analysis.
+- **Constraints:** equality constraints and fixed non-zero values of your model are not carried over; the simulation's analysis model estimates them freely, as in dynamic.
+- **Degrees of freedom:** models without degrees of freedom are refused, because their fit cannot be tested.
 - **Names:** Mplus variable names can have at most 8 characters.
 
 ## How to cite
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.0) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.1) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 

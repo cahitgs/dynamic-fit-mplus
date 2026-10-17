@@ -88,7 +88,7 @@ export function dfiChart(data, { width = 680, lang = 'en', color = false } = {})
   });
   levels.forEach((lv, r) => {
     const y0 = top + r * (panelH + rowGap);
-    s += `<text x="${left - 12}" y="${(y0 + panelH / 2 + 4).toFixed(1)}" text-anchor="end" font-size="13.5" fill="${INK}">${tr ? 'Düzey' : 'Level'} ${lv.level}</text>`;
+    s += `<text x="${left - 12}" y="${(y0 + panelH / 2 + 4).toFixed(1)}" text-anchor="end" font-size="13.5" fill="${INK}">${esc(lv.label || `${tr ? 'Düzey' : 'Level'} ${lv.level}`)}</text>`;
     IDX.forEach(([k], c) => {
       const x0 = left + c * (pw + gapX);
       const t = data.correct.map((x) => x[k]).filter(fin);

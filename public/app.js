@@ -217,6 +217,7 @@ function normalizeProject(p) {
   if (!['auto', 'continuous'].includes(p.design.dataType)) p.design.dataType = 'auto';
   if (!['auto', 'ML', 'MLR', 'WLSMV'].includes(p.design.estimator)) p.design.estimator = 'auto';
   p.design.figColor = p.design.figColor === true; // Figure 1: black and white (APA default) or color
+  p.design.signs = p.design.signs === 'dynamic' ? 'dynamic' : 'invariant'; // signs of the misspecifications (dynamic issue #7)
   p.runs = p.runs || {};
   p.edits = p.edits || {};
   return p;
@@ -464,7 +465,7 @@ function derive() {
   if (!P) return { spec: null, specErr: null, plan: null, planErr: null };
   const mode = P.source.mode;
   const cfaOk = !!(S.cfaRes && P.runs.cfa && P.runs.cfa.sig === cfaSig());
-  const key = JSON.stringify([mode, mode === 'out' ? (S.srcText ? hash(S.srcText) : '') : '', mode === 'manual' ? [P.source.text, P.source.n, P.source.fit, !!P.source.noMeans] : '', mode === 'csv' ? [cfaOk, S.cfaRes ? S.cfaRes.n : 0, S.cfaRes ? S.cfaRes.by.length : 0, S.fileText.has(CFA.out) ? hash(S.fileText.get(CFA.out)) : ''] : '', P.design.dataType, P.design.reps]);
+  const key = JSON.stringify([mode, mode === 'out' ? (S.srcText ? hash(S.srcText) : '') : '', mode === 'manual' ? [P.source.text, P.source.n, P.source.fit, !!P.source.noMeans] : '', mode === 'csv' ? [cfaOk, S.cfaRes ? S.cfaRes.n : 0, S.cfaRes ? S.cfaRes.by.length : 0, S.fileText.has(CFA.out) ? hash(S.fileText.get(CFA.out)) : ''] : '', P.design.dataType, P.design.reps, P.design.signs]);
   if (S.derived && S.derived.key === key) return S.derived;
   const d = { key, spec: null, specErr: null, plan: null, planErr: null };
   try {
@@ -479,7 +480,7 @@ function derive() {
     if (d.spec) D.structure(d.spec);
   } catch (e) { d.spec = null; d.specErr = e.message; }
   if (d.spec && fin(d.spec.n) && d.spec.n >= 10) {
-    try { d.plan = D.planDfi(d.spec, { dataType: P.design.dataType, reps: P.design.reps, meta: META }); } catch (e) { d.planErr = e.message; }
+    try { d.plan = D.planDfi(d.spec, { dataType: P.design.dataType, reps: P.design.reps, signs: P.design.signs, meta: META }); } catch (e) { d.planErr = e.message; }
   }
   S.derived = d;
   return d;
@@ -488,8 +489,11 @@ function dfiSig() {
   const P = S.P;
   if (!P) return '';
   const mode = P.source.mode;
-  // (noMeans is appended only when set, so that the signatures of earlier projects stay valid)
-  return JSON.stringify({ m: mode, c: mode === 'csv' ? cfaSig() : null, o: mode === 'out' && S.srcText ? hash(S.srcText) : null, h: mode === 'manual' ? [P.source.text, P.source.n, ...(P.source.noMeans ? [true] : [])] : null, dt: P.design.dataType, r: P.design.reps });
+  // (noMeans and the sign convention are added only when they change the study, so that the signatures of
+  // earlier projects stay valid)
+  const d = derive();
+  const sg = d.plan && d.plan.signSensitive ? { s: P.design.signs } : {};
+  return JSON.stringify({ m: mode, c: mode === 'csv' ? cfaSig() : null, o: mode === 'out' && S.srcText ? hash(S.srcText) : null, h: mode === 'manual' ? [P.source.text, P.source.n, ...(P.source.noMeans ? [true] : [])] : null, dt: P.design.dataType, r: P.design.reps, ...sg });
 }
 const dfiFiles = () => { const d = derive(); return d.plan ? d.plan.files : []; };
 const dfiActive = () => !!(S.P && S.P.runs.dfi && (S.P.runs.dfi.files || []).some((f) => isActive(S.jobs.get(f))));
@@ -1017,18 +1021,31 @@ function ctrlSettings() {
   const pol = P.design.policy;
   const polCard = `<section class="card">${cardHead(t('Improper solutions', 'Uygunsuz çözümler'), t('Replications where Mplus reports a non–positive definite residual or latent covariance matrix (e.g., a negative residual variance). Changing this does not need a new run.', 'Mplus’ın artık ya da örtük kovaryans matrisinin pozitif tanımlı olmadığını bildirdiği tekrarlar (ör. negatif artık varyans). Bunu değiştirmek yeniden çalıştırma gerektirmez.'))}
     <div class="card-b"><div class="opt-grid-2">${opt('setPolicy', 'include', pol, t('Retain · as dynamic', 'Tut · dynamic gibi'), t('Every replication counts, as in the dynamic package. The number of improper solutions is reported.', 'Her tekrar sayılır; dynamic paketinde olduğu gibi. Uygunsuz çözüm sayısı raporlanır.'))}${opt('setPolicy', 'exclude', pol, t('Exclude', 'Dışla'), t('Only admissible replications form the distributions. With strong misspecifications few may remain.', 'Dağılımları yalnız uygun tekrarlar oluşturur. Güçlü yanlış belirtmelerde az tekrar kalabilir.'))}</div></div></section>`;
+  // signs of the misspecifications: only relevant when the model has a negative loading or factor correlation
+  const sg = P.design.signs;
+  const anyNeg = !!(d.spec && (d.spec.by.some((x) => x.est < 0) || d.spec.with.some((w) => w.est < 0)));
+  const signCard = anyNeg || sg === 'dynamic' ? `<section class="card">${cardHead(t('Reverse-coded items', 'Ters kodlanmış maddeler'), t('Your model has a negative loading or factor correlation. In the dynamic package the cutoffs then depend on how the items happen to be coded (dynamic issue #7).', 'Modelinizde negatif bir yük ya da faktör korelasyonu var. dynamic paketinde bu durumda kesme değerleri maddelerin nasıl kodlandığına bağlı olur (dynamic issue #7).'))}
+    <div class="card-b"><div class="opt-grid-2">${opt('setSigns', 'invariant', sg, t('Invariant to coding · recommended', 'Kodlamaya duyarsız · önerilen'), t('Each misspecification takes the sign that keeps it the same if an item is reverse-coded; with positive loadings this equals dynamic.', 'Her yanlış belirtme, bir madde ters kodlansa da aynı kalacak işareti alır; yükler pozitifken dynamic ile aynıdır.'))}${opt('setSigns', 'dynamic', sg, t('As dynamic', 'dynamic gibi'), t('Positive cross-loadings and residual correlations, levels ordered by the signed loadings: reproduces the R package exactly.', 'Pozitif çapraz yükler ve artık korelasyonlar, işaretli yüklere göre sıralı düzeyler: R paketini birebir yeniden üretir.'))}</div></div></section>` : '';
   let prev;
   if (d.plan) {
     const p = d.plan;
+    const ruleTxt = p.rule === 'sens'
+      ? t('Cutoff rule: the highest sensitivity at 95% specificity, as dynamic’s functions for ordinal items (McNeish, 2023; McNeish & Wolf, 2024); the 95/5 rule is shown in Table 3.', 'Kesme kuralı: %95 özgüllükte en yüksek duyarlılık; dynamic’in sıralı maddelere yönelik fonksiyonları gibi (McNeish, 2023; McNeish ve Wolf, 2024). 95/5 kuralı Tablo 3’tedir.')
+      : p.type === 'one'
+        ? t('Cutoff rule: 95/5 with a 90/10 fallback (McNeish & Wolf, 2023a, 2023b); the sensitivity at 95% specificity is shown in Table 3.', 'Kesme kuralı: 90/10 yedekli 95/5 (McNeish ve Wolf, 2023a, 2023b); %95 özgüllükteki duyarlılık Tablo 3’tedir.')
+        : t('Cutoff rule: 95/5 with a 90/10 fallback (McNeish & Wolf, 2023); the sensitivity at 95% specificity is shown in Table 3.', 'Kesme kuralı: 90/10 yedekli 95/5 (McNeish ve Wolf, 2023); %95 özgüllükteki duyarlılık Tablo 3’tedir.');
     prev = `<p class="small mb-3">${t(`Detected: ${TYPE_NAME()[p.type]} · ${p.dataType === 'categorical' ? 'ordinal data, WLSMV' : 'normal data, ML'} · N = ${nfL(p.nSim)} per data set.`, `Algılanan: ${TYPE_NAME()[p.type]} · ${p.dataType === 'categorical' ? 'sıralı veri, WLSMV' : 'normal veri, ML'} · veri seti başına N = ${nfL(p.nSim)}.`)}</p>
+      <p class="hint mb-3">${ruleTxt}</p>
       <div class="grid gap-2">${p.levels.map((l) => `<div class="flex flex-wrap items-center gap-2"><span class="tag">${t('Level', 'Düzey')} ${l.level}</span><span class="tag l1">${esc(l.added)}</span></div>`).join('')}</div>
-      <p class="hint mt-3">${t(`${(p.levels.length + 1) * 2} Mplus runs: the correct model and each level, each with the hypothesized and the baseline model on the same data.`, `${(p.levels.length + 1) * 2} Mplus çalıştırması: doğru model ve her düzey, her biri aynı veride hipotez ve temel modelle.`)}</p>`;
+      ${(p.slevels || []).length ? `<p class="small mt-3 mb-2">${t('Structural misspecification (hier2): correlations between first-order disturbances; each level adds to the previous one.', 'Yapısal yanlış belirtme (hier2): birinci düzey bozulma terimleri arasındaki korelasyonlar; her düzey bir öncekine eklenir.')}</p><div class="grid gap-2">${p.slevels.map((l) => `<div class="flex flex-wrap items-center gap-2"><span class="tag">${t('Level', 'Düzey')} S${l.level}</span><span class="tag l1">${esc(l.added)}</span></div>`).join('')}</div>`
+        : p.type === 'hier' && p.structural ? `<p class="hint mt-3">${p.structural.reason === 'saturated' ? t('Structural misspecification (hier2) needs at least four first-order factors; with fewer their covariance matrix is saturated.', 'Yapısal yanlış belirtme (hier2) en az dört birinci düzey faktör gerektirir; daha azında bu faktörlerin kovaryans matrisi doymuştur.') : t('Structural misspecification (hier2) needs at least four first-order factors that load on one second-order factor and have no disturbance correlation.', 'Yapısal yanlış belirtme (hier2), tek bir ikinci düzey faktöre yüklenen ve bozulma korelasyonu olmayan en az dört birinci düzey faktör gerektirir.')}</p>` : ''}
+      <p class="hint mt-3">${t(`${p.files.length} Mplus runs: the correct model and each level, each with the hypothesized and the baseline model on the same data.`, `${p.files.length} Mplus çalıştırması: doğru model ve her düzey, her biri aynı veride hipotez ve temel modelle.`)}</p>`;
   } else if (mode === 'csv') {
     prev = callout('info', t('The misspecifications are chosen from the standardized solution, so they appear after the CFA has run.', 'Yanlış belirtmeler standartlaştırılmış çözümden seçilir; bu yüzden CFA çalıştıktan sonra görünür.'));
   } else prev = callout('warn', esc(d.planErr || d.specErr || ''));
   const prevCard = `<section class="card">${cardHead(t('Misspecification levels', 'Yanlış belirtme düzeyleri'), t('Amber = what the simulation adds to the population model but leaves out of the analysis model.', 'Kehribar = simülasyonun popülasyon modeline ekleyip analiz modelinden çıkardığı.'))}<div class="card-b">${prev}<div class="mt-3">${paperLink('analysis')}</div></div></section>`;
   return ctrlWrap(ctrlHead(eyebrow, t('Simulation settings', 'Simülasyon ayarları'), t('The defaults follow the dynamic package. Your choices update the Analysis paragraph of the paper.', 'Varsayılanlar dynamic paketini izler. Seçimleriniz makalenin Analiz paragrafını günceller.')),
-    `${!av.ok && !av.checking ? callout('warn', missingHtml(av)) : ''}${estCard}${genCard}${repCard}${polCard}${prevCard}`,
+    `${!av.ok && !av.checking ? callout('warn', missingHtml(av)) : ''}${estCard}${genCard}${repCard}${polCard}${signCard}${prevCard}`,
     stepBar({ back, info: errs.length ? errs[0] : `${mode === 'csv' ? `CFA ${est} · ` : ''}${dt === 'continuous' || !ordinal ? t('normal data', 'normal veri') : t('ordinal data', 'sıralı veri')} · ${reps} ${t('replications', 'tekrar')}`, tone: errs.length ? 'warn' : 'ok', actions: nextBtn(t('Run', 'Çalıştır'), `data-act="go" data-route="run" ${errs.length ? 'disabled' : ''}`) }));
 }
 
@@ -1039,7 +1056,7 @@ function outOf(inp) {
   const f = dfiFiles().find((x) => x.name === inp);
   return f ? f.out : /\.inp$/i.test(inp) ? inp.replace(/\.inp$/i, '.out') : null;
 }
-const lvLabel = (f) => `${f.level === 0 ? t('Correct model', 'Doğru model') : `${t('Level', 'Düzey')} ${f.level}`} · ${f.kind === 'model' ? t('hypothesized model', 'hipotez modeli') : t('baseline model (for CFI)', 'temel model (CFI için)')}`;
+const lvLabel = (f) => `${f.level === 0 ? t('Correct model', 'Doğru model') : f.family === 's' ? `${t('Structural level', 'Yapısal düzey')} S${f.level}` : `${t('Level', 'Düzey')} ${f.level}`} · ${f.kind === 'model' ? t('hypothesized model', 'hipotez modeli') : t('baseline model (for CFI)', 'temel model (CFI için)')}`;
 // The .out of the run that stopped the study (same order as runInfo), if the code sheet can show it
 function failedOut(outs) {
   const P = S.P;
@@ -1269,7 +1286,7 @@ function manuscript(lang) {
     mode, dataName: P && P.data.name, nRows: mode === 'csv' && S.table ? S.table.nRows : NaN, nCols: mode === 'csv' && S.table ? S.table.columns.length : NaN,
     sourceName: P && P.source.name, n: d.spec ? d.spec.n : NaN, factors: structOk || st ? factors : [], second, categorical: catg, nCat,
     cfaEstimator: mode === 'csv' ? (structOk ? cfaEstimator() : null) : d.spec ? d.spec.estimator : null, version,
-    plan: structOk && d.plan ? d.plan : null, policy: P ? P.design.policy : 'include',
+    plan: structOk && d.plan ? d.plan : null, policy: P ? P.design.policy : 'include', lab,
   };
   const mt = R.methodText(ctx, lang);
   const toData = go(t('Load a model', 'Model yükle'), 'data');
@@ -1305,14 +1322,17 @@ function manuscript(lang) {
   const toRun = go(structOk ? t('Go to run', 'Çalıştırmaya git') : src ? t('Define the structure', 'Yapıyı tanımla') : t('Load a model', 'Model yükle'), structOk ? 'run' : src ? 'roles' : 'data');
   const emp = d.spec ? d.spec.fit : null;
   const interp = sum ? D.interpret(emp, sum) : null;
-  add('results', `<h2 class="rep-h">${X('Results', 'Bulgular')}</h2>${sum ? R.resultsText(emp, sum, d.plan, interp, lang) : lines(3) + ph(resPh(), toRun)}`, !!sum, t('Results', 'Bulgular'));
+  const interpS = sum ? D.interpret(emp, sum, undefined, 's') : null; // structural levels of second-order models
+  add('results', `<h2 class="rep-h">${X('Results', 'Bulgular')}</h2>${sum ? R.resultsText(emp, sum, d.plan, interp, lang, interpS) : lines(3) + ph(resPh(), toRun)}`, !!sum, t('Results', 'Bulgular'));
   {
-    const c = cap('T', X('Observed Fit and Dynamic Fit Index Cutoffs', 'Gözlenen Uyum ve Dinamik Uyum İndeksi Kesme Değerleri'));
-    const h = c.html + (sum ? `<div class="table-wrap">${R.fitTable(emp, sum, d.plan, lang)}</div>` : ph(t('The cutoffs of every misspecification level are tabulated here after the run.', 'Her yanlış belirtme düzeyinin kesme değerleri çalıştırmadan sonra burada tablolanır.'), toRun));
+    const observed = !!(emp && [emp.srmr, emp.rmsea, emp.cfi].some((x) => Number.isFinite(x)));
+    const c = cap('T', observed ? X('Observed Fit and Dynamic Fit Index Cutoffs', 'Gözlenen Uyum ve Dinamik Uyum İndeksi Kesme Değerleri') : X('Dynamic Fit Index Cutoffs', 'Dinamik Uyum İndeksi Kesme Değerleri'));
+    const h = c.html + (sum ? `<div class="table-wrap">${R.fitTable(emp, sum, d.plan, lang, lab)}</div>` : ph(t('The cutoffs of every misspecification level are tabulated here after the run.', 'Her yanlış belirtme düzeyinin kesme değerleri çalıştırmadan sonra burada tablolanır.'), toRun));
     add('t-fit', `<div class="avoid">${h}</div>`, !!sum, `${c.ui} · ${t('Fit and cutoffs', 'Uyum ve kesme değerleri')}`);
   }
   {
-    const c = cap('T', X('Simulation Conditions, Improper Solutions, and Sensitivity', 'Simülasyon Koşulları, Uygunsuz Çözümler ve Duyarlılık'));
+    // Table 3 holds the other rule: the sensitivity at 95% specificity, or the 95/5 cutoffs when Table 2 has the former
+    const c = cap('T', d.plan && d.plan.rule === 'sens' ? X('Simulation Conditions, Improper Solutions, and 95/5 Cutoffs', 'Simülasyon Koşulları, Uygunsuz Çözümler ve 95/5 Kesme Değerleri') : X('Simulation Conditions, Improper Solutions, and Sensitivity', 'Simülasyon Koşulları, Uygunsuz Çözümler ve Duyarlılık'));
     const h = c.html + (sum ? `<div class="table-wrap">${R.conditionsTable(sum, d.plan, lang)}</div>` : ph(t('Completed replications, improper solutions and the sensitivity of the cutoffs are tabulated here after the run.', 'Tamamlanan tekrarlar, uygunsuz çözümler ve kesme değerlerinin duyarlılığı çalıştırmadan sonra burada tablolanır.'), toRun));
     add('t-cond', `<div class="avoid">${h}</div>`, !!sum, `${c.ui} · ${t('Simulation conditions', 'Simülasyon koşulları')}`);
   }
@@ -1321,7 +1341,9 @@ function manuscript(lang) {
     let h = c.html;
     if (sum) {
       const use = (rows) => (sum.policy === 'exclude' ? rows.filter((x) => !x.improper) : rows);
-      const data = { correct: use(sum.byLevel[0]), levels: sum.levels.map((l) => ({ level: l.level, rows: use(sum.byLevel[l.level]), cut: { srmr: l.hb.srmr.value, rmsea: l.hb.rmsea.value, cfi: l.hb.cfi.value } })), empirical: emp && fin(emp.cfi) ? emp : null };
+      const main = (l, k) => (sum.rule === 'sens' ? l.sens[k].value : l.hb[k].value); // the cutoffs of Table 2
+      const row = (l, label) => ({ level: l.level, label, rows: use(sum.byLevel[l.key]), cut: { srmr: main(l, 'srmr'), rmsea: main(l, 'rmsea'), cfi: main(l, 'cfi') } });
+      const data = { correct: use(sum.byLevel[0]), levels: [...sum.levels.map((l) => row(l, `${X('Level', 'Düzey')} ${l.level}`)), ...(sum.slevels || []).map((l) => row(l, `${X('Level', 'Düzey')} S${l.level}`))], empirical: emp && fin(emp.cfi) ? emp : null };
       const color = !!(S.P && S.P.design.figColor);
       const keyEn = color ? 'blue: correct model; orange: misspecified model' : 'grey: correct model; open: misspecified model';
       const keyTr = color ? 'mavi: doğru model; turuncu: yanlış belirtilmiş model' : 'gri: doğru model; açık: yanlış belirtilmiş model';
@@ -1771,6 +1793,7 @@ const ACT = {
   setDataType(el) { if (el.dataset.v === 'auto-only') return; S.P.design.dataType = el.dataset.v === 'continuous' ? 'continuous' : 'auto'; invalidate(); save(); render(); },
   setReps(el) { S.P.design.reps = Number(el.dataset.v); invalidate(); save(); render(); },
   setPolicy(el) { S.P.design.policy = el.dataset.v === 'exclude' ? 'exclude' : 'include'; if (Object.keys(S.runs).length) summarize(); save(); render(); },
+  setSigns(el) { S.P.design.signs = el.dataset.v === 'dynamic' ? 'dynamic' : 'invariant'; invalidate(); save(); render(); },
   figColor(el) { S.P.design.figColor = el.dataset.v === 'color'; save(); render(); },
   async recheck() {
     try { S.health = await api('/health?refresh=1'); } catch (e) { toast(e.message, 'err'); }
