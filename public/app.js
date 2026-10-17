@@ -930,6 +930,9 @@ function ctrlDataManual(eyebrow) {
   const errs = structErrors();
   const status = !(P.source.text || '').trim() ? '' : d.specErr ? callout('err', esc(d.specErr)) : st ? callout('ok', t(`${st.first.length} factor${st.first.length > 1 ? 's' : ''}, ${st.items.length} items${st.higher.length ? `, second-order ${st.higher.join(', ')}` : ''}${d.spec.thr.length ? `; thresholds for ${new Set(d.spec.thr.map((x) => x.item)).size} items` : ''}.`, `${st.first.length} faktör, ${st.items.length} madde${st.higher.length ? `, ikinci düzey ${st.higher.join(', ')}` : ''}${d.spec.thr.length ? `; ${new Set(d.spec.thr.map((x) => x.item)).size} madde için eşik` : ''}.`)) : '';
   const changed = S.ui.manualDraft != null && S.ui.manualDraft !== P.source.text;
+  // names that were shortened for Mplus (8 characters): the typed name stays as the label in the paper
+  const ren = d.spec && d.spec.labels ? Object.entries(d.spec.labels) : [];
+  const renamed = ren.length ? `<p class="hint mt-2">${t('Shortened for Mplus (the paper keeps your names): ', 'Mplus için kısaltıldı (makalede sizin adlarınız kalır): ')}${ren.map(([s, l]) => `<span class="mono">${esc(l)} → ${esc(s)}</span>`).join(', ')}</p>` : '';
   return ctrlWrap(ctrlHead(eyebrow, t('Standardized estimates', 'Standartlaştırılmış kestirimler'), t('Write one statement per factor with the standardized (STDYX) values. Thresholds make the items ordinal; without them the simulation uses normal data.', 'Her faktör için standartlaştırılmış (STDYX) değerlerle bir ifade yazın. Eşikler maddeleri sıralı yapar; eşik yoksa simülasyon normal veri kullanır.')),
     `<section class="card">${cardHead(t('Model', 'Model'), esc(P.source.name || modeName('manual')), changeSourceBtn())}
       <div class="card-b"><div class="field"><label for="manualText">${t('Standardized model (Mplus or lavaan syntax)', 'Standartlaştırılmış model (Mplus ya da lavaan sözdizimi)')}</label>
@@ -944,7 +947,7 @@ function ctrlDataManual(eyebrow) {
         <p class="hint">${t('The observed CFI, RMSEA and SRMR of the model are only used to compare it with the cutoffs in the paper.', 'Modelin gözlenen CFI, RMSEA ve SRMR değerleri yalnız makalede kesme değerleriyle karşılaştırmak için kullanılır.')}</p>
         ${d.spec && !d.spec.thr.length ? `<label class="toggle mt-2"><input type="checkbox" data-bind="manualNoMeans" ${P.source.noMeans ? 'checked' : ''}>${t('This SRMR excludes the mean structure (the default of lavaan and dynamic, or Mplus with MODEL = NOMEANSTRUCTURE): simulate the same way', 'Bu SRMR ortalama yapısını içermiyor (lavaan ve dynamic varsayılanı ya da Mplus’ta MODEL = NOMEANSTRUCTURE): simülasyon da öyle yapılsın')}</label>` : ''}
         <div class="mt-3"><button class="btn btn-primary" data-act="applyManual" ${changed ? '' : 'disabled'}>${icon('check', 16)}${t('Apply the model', 'Modeli uygula')}</button></div>
-        <div class="mt-3">${status}</div></div></section>`,
+        <div class="mt-3">${status}${renamed}</div></div></section>`,
     stepBar({ info: errs.length ? errs[0] : t('Model ready', 'Model hazır'), tone: errs.length ? 'warn' : 'ok', actions: nextBtn(t('Structure', 'Yapı'), `data-act="go" data-route="roles" ${errs.length ? 'disabled' : ''}`) }));
 }
 
@@ -1279,6 +1282,9 @@ function labelsFor() {
     for (const [c, v] of Object.entries(P.vars)) if (v.mplus) m[v.mplus.toUpperCase()] = v.labelEn || c;
     P.model.factors.forEach((f) => { m[String(f.name).toUpperCase()] = f.label || f.name; });
     if (P.model.second.on) m[String(P.model.second.name).toUpperCase()] = P.model.second.label || P.model.second.name;
+  } else {
+    const d = derive(); // names typed in that were shortened for Mplus keep the typed name as label
+    if (d.spec && d.spec.labels) Object.assign(m, d.spec.labels);
   }
   return m;
 }

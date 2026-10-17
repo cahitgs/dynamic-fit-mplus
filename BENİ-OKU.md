@@ -50,7 +50,7 @@ Ayrıca:
 - Eşitlik kısıtları simülasyonun analiz modelinde serbest bırakılır (`dynamic`'te olduğu gibi).
 - Serbestlik derecesi 0 olan modeller reddedilir; uyumları sınanamaz.
 - Tek faktörlü modellerde 1. düzey McNeish ve Wolf'un (2023a) formülünü izler (yuvarlar; maddelerin yaklaşık üçte biri). `dynamic` aşağı yuvarlar ve 10, 11, 16, 17, 22, 23, 28, 29 maddede bir korelasyon eksik ekler; Ayarlar'daki "As dynamic" seçeneği paketi birebir verir. Rapor bunu yazar.
-- Mplus değişken adları en çok 8 karakterdir.
+- Mplus değişken adları en çok 8 karakterdir. Elle girilen daha uzun adlar (ör. `Extraversion`) Mplus için kısaltılır (`EXTRAVER`); makalede yazdığınız ad etiket olarak kalır. PDF'ten kopyalanan model cümlesindeki özel işaretler (−, ∗) okunur.
 
 ## Lisans ve kaynak
 

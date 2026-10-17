@@ -141,11 +141,44 @@ export function readMplusOut(text) {
  *   F1 BY y1*.70 y2*.65;  F1 WITH F2*.40;  [y1$1*-1.2 y1$2*0.3];
  * or in the lavaan-like syntax of dynamic's manual mode
  *   F1 =~ .70*y1 + .65*y2 ;  F1 ~~ .40*F2 ;  y1 | -1.2*t1
- * → {by[], with[], thr[]}. Throws an Error with an English message.
+ * → {by[], with[], thr[], labels}. Names are upper-cased and, when longer than 8 characters or not Mplus names,
+ * shortened for Mplus; labels = {shortName: nameAsTyped} for those. Throws an Error with an English message.
  */
 export function parseStdModel(text) {
-  const txt = String(text || '').replace(/![^\n]*/g, '').replace(/#[^\n]*/g, '');
-  if (txt.includes('=~')) return parseLavaanStd(txt);
+  // characters a PDF or a word processor may have put in: mathematical letters, true minus signs, ∗ and ×, the
+  // tilde operator, hard spaces; and a statement broken across lines at a "+"
+  let txt = String(text || '').normalize('NFKC').replace(/[−‐-―]/g, '-').replace(/[∗×]/g, '*').replace(/∼/g, '~').replace(/ /g, ' ');
+  txt = txt.replace(/![^\n]*/g, '').replace(/#[^\n]*/g, '').replace(/\+[ \t]*\n\s*/g, '+ ').replace(/\n[ \t]*\+/g, ' +').replace(/=~[ \t]*\n\s*/g, '=~ ');
+  // "Extraversion = .671*E1 + …": lavaan's =~ with the tilde lost, as in a typeset tutorial
+  txt = txt.replace(/^([ \t]*[^=~|\n]+?)[ \t]*=(?![~=])[ \t]*(?=[-+]?[ \t]*[\d.]+[ \t]*\*)/gm, '$1 =~ ');
+  const r = txt.includes('=~') ? parseLavaanStd(txt) : parseMplusStd(txt);
+  // Mplus names (at most 8 characters, letters, digits and _, starting with a letter): other names are shortened
+  // for Mplus and kept as labels, e.g. {EXTRAVER: 'Extraversion'}
+  const names = [];
+  r.by.forEach((x) => names.push(x.f, x.ind));
+  r.with.forEach((w) => names.push(w.a, w.b));
+  r.thr.forEach((x) => names.push(x.item));
+  const { map, labels } = mplusNames(names);
+  const M = (s) => map[String(s).toUpperCase()];
+  return { by: r.by.map((x) => ({ ...x, f: M(x.f), ind: M(x.ind) })), with: r.with.map((w) => ({ ...w, a: M(w.a), b: M(w.b) })), thr: r.thr.map((x) => ({ ...x, item: M(x.item) })), labels };
+}
+function mplusNames(names) {
+  const map = {}, labels = {}, taken = new Set();
+  for (const raw of names) {
+    const up = String(raw).toUpperCase();
+    if (map[up] !== undefined) continue;
+    let s = up.replace(/[^A-Z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    if (!/^[A-Z]/.test(s)) s = `V${s}`;
+    s = s.slice(0, 8);
+    const base = s;
+    for (let k = 2; taken.has(s); k++) s = `${base.slice(0, 8 - String(k).length)}${k}`;
+    taken.add(s);
+    map[up] = s;
+    if (s !== up) labels[s] = String(raw);
+  }
+  return { map, labels };
+}
+function parseMplusStd(txt) {
   const by = [], wi = [], thr = [];
   const stm = txt.split(';').map((s) => s.trim().replace(/\s+/g, ' ').replace(/\s*([*@])\s*/g, '$1')).filter(Boolean);
   for (const s of stm) {
@@ -153,19 +186,19 @@ export function parseStdModel(text) {
     if (/^\[.*\]$/.test(s)) {
       for (const tk of s.replace(/^\[|\]$/g, '').trim().split(' ').filter(Boolean)) {
         if (!(m = tk.match(/^([^$]+)\$(\d+)[*@](-?[\d.]+)$/))) throw new Error(`Cannot read the threshold "${tk}" (write e.g. [y1$1*-1.20 y1$2*0.35]).`);
-        thr.push({ item: m[1].toUpperCase(), k: Number(m[2]), est: Number(m[3]) });
+        thr.push({ item: m[1], k: Number(m[2]), est: Number(m[3]) });
       }
     } else if (/^\S+ BY /i.test(s)) {
-      const p = s.split(' '), f = p[0].toUpperCase();
+      const p = s.split(' '), f = p[0];
       for (const tk of p.slice(2)) {
         if (!(m = tk.match(/^([^*@]+)[*@](-?[\d.]+)$/))) throw new Error(`The loading "${tk}" has no standardized value (write e.g. ${f} BY y1*.70).`);
-        by.push({ f, ind: m[1].toUpperCase(), est: Number(m[2]) });
+        by.push({ f, ind: m[1], est: Number(m[2]) });
       }
     } else if (/^\S+ WITH /i.test(s)) {
-      const p = s.split(' '), a = p[0].toUpperCase();
+      const p = s.split(' '), a = p[0];
       for (const tk of p.slice(2)) {
         if (!(m = tk.match(/^([^*@]+)([*@])(-?[\d.]+)$/))) throw new Error(`"${a} WITH ${tk}" has no standardized value (write e.g. F1 WITH F2*.40).`);
-        wi.push({ a, b: m[1].toUpperCase(), est: Number(m[3]), fixed: m[2] === '@' });
+        wi.push({ a, b: m[1], est: Number(m[3]), fixed: m[2] === '@' });
       }
     } else throw new Error(`Cannot read the statement "${s}". Use BY, WITH and [threshold] statements.`);
   }
@@ -179,22 +212,22 @@ function parseLavaanStd(txt) {
     let m;
     if (ln.includes('=~')) {
       const [l, r] = ln.split('=~');
-      const f = l.trim().toUpperCase();
+      const f = l.trim();
       for (const tm of r.split('+').map((x) => x.trim())) {
         if (!(m = tm.match(term))) throw new Error(`Cannot read "${tm}" (write e.g. F1 =~ .70*y1 + .65*y2).`);
-        by.push({ f, ind: m[2].toUpperCase(), est: Number(m[1]) });
+        by.push({ f, ind: m[2], est: Number(m[1]) });
       }
     } else if (ln.includes('~~')) {
       const [l, r] = ln.split('~~');
-      const a = l.trim().toUpperCase();
+      const a = l.trim();
       for (const tm of r.split('+').map((x) => x.trim())) {
         if (!(m = tm.match(term))) throw new Error(`Cannot read "${tm}" (write e.g. F1 ~~ .40*F2).`);
-        if (m[2].toUpperCase() !== a) wi.push({ a, b: m[2].toUpperCase(), est: Number(m[1]), fixed: false });
+        if (m[2].toUpperCase() !== a.toUpperCase()) wi.push({ a, b: m[2], est: Number(m[1]), fixed: false });
       }
     } else if (ln.includes('|')) {
       const [l, r] = ln.split('|');
       if (!(m = r.trim().match(/^(-?[\d.]+)\s*\*\s*t(\d+)$/))) throw new Error(`Cannot read the threshold "${ln}" (write e.g. y1 | -1.20*t1).`);
-      thr.push({ item: l.trim().toUpperCase(), k: Number(m[2]), est: Number(m[1]) });
+      thr.push({ item: l.trim(), k: Number(m[2]), est: Number(m[1]) });
     } else throw new Error(`Cannot read the line "${ln}".`);
   }
   if (!by.length) throw new Error('The model has no loadings.');
@@ -492,10 +525,20 @@ function popLines(spec, st, pop, addBy, catItems) {
   return out;
 }
 
-/** MODEL statements of the analysis model: the model structure, Mplus default identification. */
+/**
+ * MODEL statements of the analysis model: the model structure, Mplus default identification (the first loading of
+ * each factor fixed at 1). An indicator whose standardized loading has the opposite sign of that first indicator's
+ * gets the start value −1: Mplus starts every loading at +1, and with several reverse-coded items and
+ * MODEL = NOMEANSTRUCTURE the estimation then failed to converge in every replication (the 10-item Extraversion
+ * model of Wolf & McNeish's DFI tutorial). A start value changes nothing at convergence.
+ */
 export function analysisLines(spec, st = structure(spec)) {
   const out = [];
-  for (const f of st.factors) out.push(...wrapStmt(`${f} BY ${spec.by.filter((x) => x.f === f).map((x) => x.ind).join(' ')};`));
+  for (const f of st.factors) {
+    const rows = spec.by.filter((x) => x.f === f);
+    const marker = Math.sign(rows[0].est) || 1;
+    out.push(...wrapStmt(`${f} BY ${rows.map((x, i) => (i > 0 && Math.sign(x.est) * marker < 0 ? `${x.ind}*-1` : x.ind)).join(' ')};`));
+  }
   for (const w of spec.with) out.push(`  ${w.a} WITH ${w.b}${w.fixed && w.est === 0 ? '@0' : ''};`);
   return out;
 }

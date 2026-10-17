@@ -13,6 +13,7 @@
 //      must reproduce the cutoffs validated against the R package (same seeds → identical Mplus results).
 //   4. Mplus: a short ordinal (WLSMV) DFI from the sample CFA (50 replications) must complete.
 //   5. Mplus: a second-order model entered with the second-order statement first must run (20 replications).
+//   6. Mplus: a one-factor model with reverse-coded items and no mean structure must converge (20 replications).
 // Exit code 1 when a check fails; without Mplus only the JavaScript checks run.
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -59,6 +60,11 @@ check(planA.slevels.length === 0 && planA.structural.reason === 'saturated', 'A-
 const ten = { ...D.parseStdModel('F =~ .52*Q1 + .61*Q2 + .55*Q3 + .70*Q4 + .66*Q5 + .58*Q6 + .73*Q7 + .64*Q8 + .69*Q9 + .60*Q10'), n: 300 };
 const cnt = (o) => D.planDfi(ten, o).levels.map((l) => l.addRcov.length).join(',');
 check(cnt({}) === '2,3,5' && cnt({ signs: 'dynamic' }) === '1,3,5' && D.planDfi(ten, {}).l1Differs, `one-factor, 10 items: levels 2,3,5 as in the paper, 1,3,5 as dynamic (got ${cnt({})} / ${cnt({ signs: 'dynamic' })})`);
+// a model statement copied from a PDF (mathematical letters, −, ∗, "=" without the tilde, a line break) and long names
+const pdf = D.parseStdModel('𝐸𝑥𝑡𝑟𝑎𝑣𝑒𝑟𝑠𝑖𝑜𝑛 = .671∗𝐸1+−.705∗𝐸2+.704∗𝐸3+−.702∗𝐸4+.750∗𝐸5+−.572∗𝐸6+.744∗𝐸7+−.514∗𝐸8+.605∗𝐸9+\n−.703∗𝐸10');
+check(pdf.by.length === 10 && pdf.by[0].f === 'EXTRAVER' && pdf.labels.EXTRAVER === 'Extraversion' && pdf.by[1].est === -0.705 && pdf.by[9].ind === 'E10' && pdf.by[9].est === -0.703, `a model statement copied from a PDF is read (${pdf.by.length} loadings; factor ${pdf.by[0].f} = "${pdf.labels.EXTRAVER}")`);
+const two = D.parseStdModel('Extraversion1 =~ .7*a1 + .6*a2 + .5*a3\nExtraversion2 =~ .7*b1 + .6*b2 + .5*b3\nExtraversion1 ~~ .3*Extraversion2');
+check(two.by[0].f === 'EXTRAVER' && two.by[3].f === 'EXTRAVE2' && two.with[0].a === 'EXTRAVER' && two.with[0].b === 'EXTRAVE2' && two.labels.EXTRAVE2 === 'Extraversion2' && !('A1' in two.labels), `long names are shortened uniquely for Mplus (${two.by[0].f}, ${two.by[3].f}); short names get no label`);
 const dfErr = (txt) => { try { D.planDfi({ ...D.parseStdModel(txt), n: 300 }, {}); return ''; } catch (e) { return e.message; } };
 check(/df = 0/.test(dfErr('F =~ .7*a + .6*b + .5*c')) && !dfErr('F1 =~ .7*a + .6*b\nF2 =~ .7*c + .6*d\nF1 ~~ .3*F2'), 'models without degrees of freedom are refused (3-item one-factor: df = 0; 2 × 2 items: df = 1 runs)');
 // hier2 (structural misspecification) against dynamic: pairs and disturbance covariances of a 6-factor model
@@ -193,6 +199,18 @@ console.log('\nSecond-order model, second-order statement first (ML, 20 replicat
   const plan = D.planDfi(H6, { reps: 20 });
   const { sum, ms: t } = await runPlan(plan, path.join(BASE, 'gfirst'));
   check(sum.ok && [sum.level0, ...sum.levels, ...sum.slevels].every((l) => l.completed >= 15), sum.ok ? `${plan.files.length} Mplus runs completed (${plan.levels.length} levels, ${plan.slevels.length} structural) · ${(t / 1000).toFixed(1)} s` : sum.error);
+}
+
+// ---------- 6. reverse-coded items without a mean structure ----------
+// The Extraversion model of Wolf & McNeish's DFI tutorial (10 items, 5 reverse-coded, N = 1,222): with
+// MODEL = NOMEANSTRUCTURE and Mplus's default start values no replication converged.
+console.log('\nOne-factor model with reverse-coded items, no mean structure (ML, 20 replications)');
+{
+  const ext = { ...D.parseStdModel('EXTRA =~ .671*E1 + -.705*E2 + .704*E3 + -.702*E4 + .750*E5 + -.572*E6 + .744*E7 + -.514*E8 + .605*E9 + -.703*E10'), n: 1222, noMeans: true };
+  const plan = D.planDfi(ext, { reps: 20, signs: 'dynamic' });
+  check(/EXTRA BY E1 E2\*-1 E3 E4\*-1 E5 E6\*-1 E7 E8\*-1 E9 E10\*-1;/.test(plan.files[0].text) && /NOMEANSTRUCTURE/.test(plan.files[0].text), 'analysis model gives reverse-coded items the start value -1');
+  const { sum, ms: t } = await runPlan(plan, path.join(BASE, 'reverse'));
+  check(sum.ok && [sum.level0, ...sum.levels].every((l) => l.completed >= 18), sum.ok ? `replications completed: ${[sum.level0.completed, ...sum.levels.map((l) => l.completed)].join(' / ')} of 20 · ${(t / 1000).toFixed(1)} s` : sum.error);
 }
 
 if (!KEEP && !arg('dir')) await fs.rm(BASE, { recursive: true, force: true }).catch(() => {});

@@ -83,6 +83,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 - **Misspecifications:** the app adds the same cross-loadings as dynamic's `multi_add_HB` and `multi_add_hier` (item, target factor and magnitude), the same residual-correlation pairs as `one_add` (with the "As dynamic" setting also the same number per level), and the same disturbance-correlation pairs and covariances as `hier2`. This was checked on the package's own examples and further test models; with the "as dynamic" sign setting it also holds for models with negative loadings.
 - **Cutoff rules:** applied to dynamic's own simulated fit distributions, the app's two rules reproduce every cutoff that dynamic prints (33 of 33 cells).
 - **Appendix B of McNeish & Wolf (2023a):** with the same Mplus options (`MODEL = NOMEANSTRUCTURE; INFORMATION = EXPECTED;`) and seed (1981), the app's Monte Carlo inputs reproduce the appendix's simulation replication by replication.
+- **The DFI tutorial of Wolf & McNeish (2023):** its 10-item Extraversion example (N = 1,222, five reverse-coded items; Table 10.1) is reproduced within .002 with the "As dynamic" setting and no mean structure, over three seed pairs.
 - **Self-test:** `node tools/engine-test.mjs` checks the engine, runs the sample CFA in Mplus in an ASCII folder, a folder with Turkish letters and spaces, and through an ASCII temporary copy, runs a short ordinal DFI, and reproduces a 500-replication reference DFI of the A-SAGS model (`--quick` skips the reference DFI).
 
 ## Notes on fit index definitions
@@ -99,13 +100,13 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 - **Data:** continuous data are simulated as multivariate normal. Missing-data patterns and non-normality are not reproduced.
 - **Constraints:** equality constraints and fixed non-zero values of your model are not carried over; the simulation's analysis model estimates them freely, as in dynamic.
 - **Degrees of freedom:** models without degrees of freedom are refused, because their fit cannot be tested.
-- **Names:** Mplus variable names can have at most 8 characters.
+- **Names:** Mplus variable names can have at most 8 characters. Longer names typed in (e.g., `Extraversion`) are shortened for Mplus (`EXTRAVER`), and the paper keeps the typed name as the label. Names read from an Mplus output already comply.
 
 ## How to cite
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.4) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.5) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 

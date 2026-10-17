@@ -409,6 +409,13 @@ export function resultsText(emp, sum, plan, interp, lang = 'en', interpS = null)
   } else if (l0.improper > 0) {
     sim.push(X(lang, `In the correct model, ${sh0}% of the replications ended in improper solutions (Table 3); they were ${how} the cutoff distributions.`, `Doğru modelde tekrarların %${sh0}’i uygunsuz çözümle sonuçlanmıştır (Tablo 3); bu tekrarlar kesme değeri dağılımlarında ${how}.`));
   }
+  // replications that did not converge have no fit indices and are never part of the distributions (Table 3, Completed)
+  const notConv = [l0, ...allLv].map((l) => (plan.reps || 0) - (l.completed || 0)).filter((k) => k > 0);
+  if (notConv.length) {
+    const mx = Math.max(...notConv);
+    sim.push(X(lang, `In ${notConv.length === 1 ? 'one condition' : `${numWord(notConv.length, lang)} conditions`}, Mplus did not converge in some replications (at most ${apaInt(mx, lang)} of ${apaInt(plan.reps, lang)}; Table 3, Completed); those replications have no fit indices and are not part of the cutoff distributions.`,
+      `${notConv.length} koşulda Mplus bazı tekrarlarda yakınsamamıştır (en çok ${apaInt(plan.reps, lang)} tekrarın ${apaInt(mx, lang)}’i; Tablo 3, Tamamlanan); bu tekrarların uyum indeksi yoktur ve kesme değeri dağılımlarına girmezler.`));
+  }
   // excluding improper solutions can leave too few replications for a cutoff (e.g., a Heywood case at every level)
   const empty = sum.policy === 'exclude' ? [sum.level0, ...allLv].filter((l) => l && l.used < 2) : [];
   if (empty.length) sim.push(X(lang, `In ${empty.length === 1 ? 'one condition' : `${numWord(empty.length, lang)} conditions`}, (nearly) all replications were improper, so no cutoff could be computed after excluding them.`, `${empty.length} koşulda tekrarların (neredeyse) tamamı uygunsuz olduğundan, bunlar dışlandıktan sonra kesme değeri hesaplanamamıştır.`));
