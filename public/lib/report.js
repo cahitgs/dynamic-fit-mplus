@@ -200,12 +200,18 @@ export function methodText(ctx = {}, lang = 'en') {
     const lim = cont
       ? X(lang, ` The simulated data were complete and multivariate normal, so missing data and non-normality of the observed data are not reflected in the cutoffs (${c.mwCfa}).`, ` Simülasyon verileri eksiksiz ve çok değişkenli normaldir; bu yüzden gözlenen verideki eksik veri ve normal dışılık kesme değerlerine yansımaz (${TR(c.mwCfa)}).`)
       : X(lang, ' The simulated data were complete, so missing data in the observed data are not reflected in the cutoffs.', ' Simülasyon verileri eksiksizdir; bu yüzden gözlenen verideki eksik veri kesme değerlerine yansımaz.');
+    // ordinal items analyzed as normal (the "as dynamic" option): the cutoffs are not on the metric of the observed fit
+    const srcEst = esc(p.srcEstimator || 'WLSMV');
+    const mism = p.estMismatch
+      ? X(lang, ` Although the items were ordered categorical and the model was estimated with ${srcEst}, the simulated data were generated as multivariate normal and analyzed with ML, as in the default functions of the dynamic package (${c.code}); these cutoffs are not on the metric of the observed fit indices and were therefore not used to evaluate the fit of the model.`,
+        ` Maddeler sıralı kategorik olup model ${srcEst} ile kestirilmiş olsa da simülasyon verileri, dynamic paketinin varsayılan fonksiyonlarında olduğu gibi (${TR(c.code)}) çok değişkenli normal üretilmiş ve ML ile analiz edilmiştir; bu kesme değerleri gözlenen uyum indeksleriyle aynı ölçekte olmadığından modelin uyumunu değerlendirmede kullanılmamıştır.`)
+      : '';
     const scaled = /^(MLR|MLM|MLMV)$/.test(String(ctx.cfaEstimator || '').toUpperCase()) && cont
       ? X(lang, ` The observed RMSEA and CFI were scaled (${esc(String(ctx.cfaEstimator).toUpperCase())}), whereas the cutoffs come from ML with normal data, so the comparison assumes approximately normal data.`, ` Gözlenen RMSEA ve CFI ölçeklenmiştir (${esc(String(ctx.cfaEstimator).toUpperCase())}); kesme değerleri ise normal veride ML’den gelir, bu yüzden karşılaştırma verinin yaklaşık normal olduğunu varsayar.`) : '';
     // the estimator is named in full only once: the CFA sentence has already defined it when it is the same
     const simEst = est && String(ctx.cfaEstimator || '').toUpperCase() === String(p.estimator).toUpperCase() ? esc(String(p.estimator).toUpperCase()) : estName(p.estimator, lang);
-    const sim = X(lang, `For the correctly specified model and for each level, ${apaInt(p.reps, lang)} data sets of <i>N</i>&nbsp;=&nbsp;${apaInt(p.nSim, lang)} were generated in ${inMplus} ${gen} and analyzed with the hypothesized model using ${simEst}.${cap} CFI was computed for every replication from the chi-square statistics of the hypothesized model and of the baseline model fitted to the same data sets.${noMeans}${lim}${scaled}`,
-      `Doğru belirtilmiş model ve her düzey için ${inMplus} <i>N</i>&nbsp;=&nbsp;${apaInt(p.nSim, lang)} büyüklüğünde ${apaInt(p.reps, lang)} veri seti ${gen} üretilmiş ve hipotez modeli ${simEst} ile bu veri setlerine uydurulmuştur.${cap} CFI her tekrar için, aynı veri setlerine uydurulan hipotez modeli ile temel (bağımsızlık) modelinin ki-kare istatistiklerinden hesaplanmıştır.${noMeans}${lim}${scaled}`);
+    const sim = X(lang, `For the correctly specified model and for each level, ${apaInt(p.reps, lang)} data sets of <i>N</i>&nbsp;=&nbsp;${apaInt(p.nSim, lang)} were generated in ${inMplus} ${gen} and analyzed with the hypothesized model using ${simEst}.${cap} CFI was computed for every replication from the chi-square statistics of the hypothesized model and of the baseline model fitted to the same data sets.${noMeans}${lim}${scaled}${mism}`,
+      `Doğru belirtilmiş model ve her düzey için ${inMplus} <i>N</i>&nbsp;=&nbsp;${apaInt(p.nSim, lang)} büyüklüğünde ${apaInt(p.reps, lang)} veri seti ${gen} üretilmiş ve hipotez modeli ${simEst} ile bu veri setlerine uydurulmuştur.${cap} CFI her tekrar için, aynı veri setlerine uydurulan hipotez modeli ile temel (bağımsızlık) modelinin ki-kare istatistiklerinden hesaplanmıştır.${noMeans}${lim}${scaled}${mism}`);
     const rule = p.rule === 'sens'
       ? X(lang, `Because the items were ordered categorical, the cutoff for each index and level was chosen, as in dynamic’s functions for categorical items, to keep 95% specificity with the highest sensitivity: starting at 95% and lowering the sensitivity in 1% steps, it was the first quantile of the misspecified-model distribution that still separated it from 95% of the correctly specified replications (McNeish, 2023; McNeish &amp; Wolf, 2024); following the package, no cutoff was reported when the sensitivity fell below 50% (${c.code}). Table 3 also gives the cutoffs by the 95/5 rule with a 90/10 fallback (${c.mwRule}).`,
         `Maddeler sıralı kategorik olduğundan her indeks ve düzey için kesme değeri, dynamic’in kategorik maddelere yönelik fonksiyonlarında olduğu gibi, %95 özgüllüğü en yüksek duyarlılıkla koruyacak biçimde seçilmiştir: duyarlılık %95’ten başlayıp %1 adımlarla düşürülmüş ve yanlış belirtilmiş model dağılımının doğru belirtilmiş tekrarların %95’inden hâlâ ayrıştığı ilk yüzdelik alınmıştır (McNeish, 2023; McNeish ve Wolf, 2024); pakette olduğu gibi duyarlılık %50’nin altına düştüğünde kesme değeri verilmemiştir (${TR(c.code)}). Tablo 3, 90/10 yedekli 95/5 kuralına göre kesme değerlerini de verir (${TR(c.mwRule)}).`)
@@ -260,8 +266,10 @@ export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
     : (c) => { if (!fin(c.value)) return 'NONE'; if (c.rule === '90/10') { any90 = true; return `${fit3(c.value)}<sup>a</sup>`; } return fit3(c.value); };
   const head = `<tr><th class="tl">${X(lang, 'Model', 'Model')}</th><th class="tl">${X(lang, 'Misspecification', 'Yanlış belirtme')}</th><th>SRMR</th><th>RMSEA</th><th>CFI</th></tr>`;
   const rows = [];
+  const mism = !!plan.estMismatch; // observed WLSMV fit, ML cutoffs: shown side by side but not comparable
+  const srcEst = esc(plan.srcEstimator || 'WLSMV');
   if (emp && (fin(emp.srmr) || fin(emp.rmsea) || fin(emp.cfi))) {
-    rows.push(`<tr><td class="tl">${X(lang, 'Hypothesized model (observed)', 'Hipotez modeli (gözlenen)')}</td><td class="tl">—</td><td>${fit3(emp.srmr)}</td><td>${fit3(emp.rmsea)}</td><td>${fit3(emp.cfi)}</td></tr>`);
+    rows.push(`<tr><td class="tl">${mism ? X(lang, `Hypothesized model (observed, ${srcEst})`, `Hipotez modeli (gözlenen, ${srcEst})`) : X(lang, 'Hypothesized model (observed)', 'Hipotez modeli (gözlenen)')}</td><td class="tl">—</td><td>${fit3(emp.srmr)}</td><td>${fit3(emp.rmsea)}</td><td>${fit3(emp.cfi)}</td></tr>`);
   }
   rows.push(`<tr class="sub"><td colspan="5">${X(lang, 'Dynamic fit index cutoffs', 'Dinamik uyum indeksi kesme değerleri')}</td></tr>`);
   sum.levels.forEach((l) => rows.push(`<tr><td class="tl">${X(lang, 'Level', 'Düzey')} ${l.level}</td><td class="tl">${levelText(plan, plan.levels[l.level - 1], lang, lab)}</td><td>${cell(l.hb.srmr, l.sens.srmr)}</td><td>${cell(l.hb.rmsea, l.sens.rmsea)}</td><td>${cell(l.hb.cfi, l.sens.cfi)}</td></tr>`));
@@ -282,9 +290,11 @@ export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
   const mw = cites(plan).mwCfa;
   const yard = X(lang, ` The added paths are a yardstick for the size of the misfit; they do not show where the model is misspecified. The fixed SRMR cutoff of .08 came from combination rules for other misspecifications, so dynamic SRMR cutoffs are expected to be smaller (${mw}).`,
     ` Eklenen yollar uyumsuzluğun büyüklüğü için bir ölçüttür; modelin nerede yanlış belirtildiğini göstermez. .08 sabit SRMR kesme değeri başka yanlış belirtmeler için birleşik kurallardan gelir; bu yüzden dinamik SRMR kesme değerlerinin daha küçük olması beklenir (${TR(mw)}).`);
+  const warnEn = mism ? ` The observed fit was estimated with ${srcEst} for ordinal items, the cutoffs with ML from normal data; the two are not on the same metric and should not be compared.` : '';
+  const warnTr = mism ? ` Gözlenen uyum sıralı maddeler için ${srcEst} ile, kesme değerleri normal veride ML ile kestirilmiştir; ikisi aynı ölçekte değildir ve karşılaştırılmamalıdır.` : '';
   const note = X(lang,
-    `<i>Note.</i> Values below the cutoff (SRMR, RMSEA) or above it (CFI) indicate misfit smaller than that level of misspecification.${cum}${yard} ${ruleEn}. ${apaInt(plan.reps, lang)} replications per condition; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'ordinal data' : 'normal data'}, ${esc(plan.estimator)}; improper solutions ${sum.policy === 'exclude' ? 'excluded' : 'retained'}.`,
-    `<i>Not.</i> Kesme değerinin altındaki (SRMR, RMSEA) ya da üstündeki (CFI) değerler, uyumsuzluğun o yanlış belirtme düzeyinden küçük olduğunu gösterir.${cum}${yard} ${ruleTr}. Koşul başına ${apaInt(plan.reps, lang)} tekrar; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'sıralı veri' : 'normal veri'}, ${esc(plan.estimator)}; uygunsuz çözümler ${sum.policy === 'exclude' ? 'dışlandı' : 'tutuldu'}.`);
+    `<i>Note.</i>${warnEn} Values below the cutoff (SRMR, RMSEA) or above it (CFI) indicate misfit smaller than that level of misspecification.${cum}${yard} ${ruleEn}. ${apaInt(plan.reps, lang)} replications per condition; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'ordinal data' : 'normal data'}, ${esc(plan.estimator)}; improper solutions ${sum.policy === 'exclude' ? 'excluded' : 'retained'}.`,
+    `<i>Not.</i>${warnTr} Kesme değerinin altındaki (SRMR, RMSEA) ya da üstündeki (CFI) değerler, uyumsuzluğun o yanlış belirtme düzeyinden küçük olduğunu gösterir.${cum}${yard} ${ruleTr}. Koşul başına ${apaInt(plan.reps, lang)} tekrar; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'sıralı veri' : 'normal veri'}, ${esc(plan.estimator)}; uygunsuz çözümler ${sum.policy === 'exclude' ? 'dışlandı' : 'tutuldu'}.`);
   return `<table class="rtab" style="width:auto;min-width:440px"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table><p class="tnote">${note}</p>`;
 }
 
@@ -339,7 +349,9 @@ export function resultsText(emp, sum, plan, interp, lang = 'en', interpS = null)
     // Wolf, 2023a: the four interpretation bins)
     if (chi && fin(emp.pvalue)) {
       const mw = cites(plan).mwCfa;
-      out.push(emp.pvalue < 0.05
+      out.push(emp.pvalue < 0.05 && plan && plan.estMismatch
+        ? X(lang, 'The chi-square test rejected exact fit.', 'Ki-kare testi tam uyumu reddetmiştir.')
+        : emp.pvalue < 0.05
         ? X(lang, `The chi-square test rejected exact fit, so the dynamic cutoffs serve to judge how large the misfit is (${mw}).`, `Ki-kare testi tam uyumu reddetmiştir; dinamik kesme değerleri uyumsuzluğun ne kadar büyük olduğunu değerlendirmeye yarar (${TR(mw)}).`)
         : X(lang, `The chi-square test did not reject exact fit (${mw}).`, `Ki-kare testi tam uyumu reddetmemiştir (${TR(mw)}).`));
     }
@@ -366,13 +378,17 @@ export function resultsText(emp, sum, plan, interp, lang = 'en', interpS = null)
       return X(lang, `${nm} ${verb} the Level-${pre}${x.beyond} cutoff (${fit3(x.cut[x.beyond - 1])}) but not the Level-${pre}${next + 1} cutoff`, `${nm}, ${trL(x.beyond)} kesme değerini (${fit3(x.cut[x.beyond - 1])}) aşmış, ${trL(next + 1)} kesme değerini aşmamıştır`);
     });
     const kind = plan.type === 'one' ? X(lang, 'residual-correlation ', 'artık korelasyon ') : X(lang, 'cross-loading ', 'çapraz yük ');
-    const parts = phrases(interp, K, '');
+    // observed WLSMV fit against ML cutoffs (the "as dynamic" option): different metrics, so no comparison at all
+    const mism = !!(plan && plan.estMismatch);
+    if (mism) out.push(X(lang, `Because the observed indices were estimated with ${esc(plan.srcEstimator || 'WLSMV')} for ordered categorical items, whereas the cutoffs in Table 2 were derived with ML from normal data, the two are not on the same metric; the cutoffs are given for comparison with the dynamic package only and were not used to judge the fit of the model.`,
+      `Gözlenen indeksler sıralı kategorik maddeler için ${esc(plan.srcEstimator || 'WLSMV')} ile, Tablo 2’deki kesme değerleri ise normal veride ML ile elde edildiğinden ikisi aynı ölçekte değildir; kesme değerleri yalnızca dynamic paketiyle karşılaştırma için verilmiş, modelin uyumunu değerlendirmede kullanılmamıştır.`));
+    const parts = mism ? [] : phrases(interp, K, '');
     if (parts.length) out.push(X(lang, `Compared with the dynamic cutoffs in Table 2, ${listJoin(parts, lang)}.`, `Tablo 2’deki dinamik kesme değerleriyle karşılaştırıldığında ${listJoin(parts, lang)}.`));
-    const all = (interp || []).filter((x) => fin(x.value) && x.any);
+    const all = mism ? [] : (interp || []).filter((x) => fin(x.value) && x.any);
     const tops = [...new Set(all.map((x) => x.top))];
     if (all.length && all.every((x) => x.beyond === 0 && fin(x.cut[0]))) out.push(X(lang, `The misfit of the model is therefore smaller than the smallest ${kind}misspecification considered.`, `Dolayısıyla modelin uyumsuzluğu, ele alınan en küçük ${kind}yanlış belirtmesinden daha küçüktür.`));
     else if (all.length && all.every((x) => x.beyond === x.top)) out.push(X(lang, `The misfit of the model is therefore at least as large as the largest ${kind}misspecification considered${tops.length === 1 ? ` (Level ${tops[0]})` : ''}; the sources of misfit deserve a closer look (e.g., modification indices, cross-loadings, residual correlations).`, `Dolayısıyla modelin uyumsuzluğu, ele alınan en büyük ${kind}yanlış belirtmesi${tops.length === 1 ? ` (${tops[0]}. düzey)` : ''} kadar ya da ondan büyüktür; uyumsuzluğun kaynakları (ör. modifikasyon indeksleri, çapraz yükler, artık korelasyonlar) ayrıca incelenmelidir.`));
-    const sparts = phrases(interpS, (sum.slevels || []).length, 'S');
+    const sparts = mism ? [] : phrases(interpS, (sum.slevels || []).length, 'S');
     if (sparts.length) out.push(X(lang, `For the structural misspecification, ${listJoin(sparts, lang)}.`, `Yapısal yanlış belirtme için ${listJoin(sparts, lang)}.`));
     const hb = [emp.cfi >= 0.95, emp.rmsea <= 0.06, emp.srmr <= 0.08];
     const met = hb.filter(Boolean).length;

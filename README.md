@@ -60,7 +60,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 1. **Data:** choose raw data, an Mplus output or typed-in estimates. A sample data set and the A-SAGS example (Boivin et al., 2026) are included.
 2. **Structure:** assign items to factors, optionally with a second-order factor, or check the structure read from the output.
 3. **Settings:**
-   - Response format: ordinal or normal data.
+   - Response format: ordinal or normal data. Ordinal items are simulated as ordinal and analyzed with WLSMV by default. If you choose normal data with ML for them instead (as dynamic's default functions do), the report does not compare your WLSMV fit with those cutoffs, because the two are not on the same metric.
    - Replications: 500 by default.
    - Improper solutions: retain or exclude.
 4. **Run:** for the correct model and for each misspecification level, Mplus runs two Monte Carlo inputs:
@@ -97,7 +97,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.2) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.3) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 

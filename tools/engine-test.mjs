@@ -180,6 +180,8 @@ if (cfa) {
   if (!sum.ok) fail(sum.error);
   else {
     check(plan.dataType === 'categorical' && plan.estimator === 'WLSMV', `ordinal data, WLSMV (${plan.type}, ${plan.levels.length} levels: ${plan.levels.map((l) => l.added).join('; ')})`);
+    // the "as dynamic" option (normal data, ML) for a WLSMV model: flagged, so the report does not compare the fit
+    check(!plan.estMismatch && D.planDfi({ ...cfa }, { dataType: 'continuous', reps: 50 }).estMismatch === true, 'WLSMV model with ML cutoffs is flagged as not comparable');
     check([sum.level0, ...sum.levels].every((l) => l.completed >= 45), `replications completed: ${[sum.level0.completed, ...sum.levels.map((l) => l.completed)].join(' / ')} of 50 · ${(t / 1000).toFixed(1)} s`);
     console.log(`        cutoffs (95/5): ${sum.levels.map(row).join(' | ')} · improper: ${sum.levels.map((l) => l.improper).join(' / ')}`);
   }

@@ -14,7 +14,7 @@ En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını 
    - **Standart kestirimler:** Bir makaledeki yükler ve N. Hazır örnek: A-SAGS (Boivin ve ark., 2026).
 2. **Structure:** CSV yolunda maddeleri faktörlere atayın, isterseniz ikinci düzey faktör ekleyin. Diğer yollarda okunan yapı gösterilir.
 3. **Settings:**
-   - Veri üretimi: sıralı/WLSMV ya da `dynamic` gibi normal/ML.
+   - Veri üretimi: sıralı/WLSMV ya da `dynamic` gibi normal/ML. Sıralı maddelerde varsayılan WLSMV'dir. Normal/ML seçilirse rapor, WLSMV ile kestirilen uyumu bu kesme değerleriyle karşılaştırmaz; ikisi aynı ölçekte değildir.
    - Tekrar sayısı: varsayılan 500.
    - Uygunsuz çözümler: varsayılan "Retain" (dynamic gibi). Bu ayarı değiştirmek yeniden çalıştırma gerektirmez.
    - Kesme kuralı model türünden gelir: sürekli maddeler ve ikinci düzey modellerde 90/10 yedekli 95/5; sıralı tek ve çok faktörlü modellerde %95 özgüllükte en yüksek duyarlılık (`catOne`/`catHB` gibi). Öteki kural Tablo 3'te verilir.

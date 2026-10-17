@@ -552,6 +552,10 @@ export function planDfi(spec, opts = {}) {
   spec.thr.forEach((t) => { nthr[t.item] = (nthr[t.item] || 0) + 1; });
   const estimator = String(o.estimator || (dataType === 'categorical' ? 'WLSMV' : 'ML')).toUpperCase();
   if (catItems.length && !/^(WLS|ULS)/.test(estimator)) throw new Error('Categorical data need a WLS- or ULS-family estimator (e.g., WLSMV).');
+  // the observed fit comes from an ordinal (WLSMV-type) model but the cutoffs from ML with normal data (the "as
+  // dynamic" option): the two are on different metrics, so the report does not compare them
+  const srcEstimator = spec.estimator ? String(spec.estimator).toUpperCase() : null;
+  const estMismatch = (spec.thr.length > 0 || /^(WLS|ULS)/.test(srcEstimator || '')) && dataType !== 'categorical';
   let type = o.type;
   if (type === 'auto') type = st.higher.length ? 'hier' : st.factors.length === 1 ? 'one' : 'multi';
   if (type === 'one' && st.factors.length !== 1) throw new Error('A one-factor analysis needs a one-factor model.');
@@ -618,7 +622,7 @@ export function planDfi(spec, opts = {}) {
       files.push({ name: `${stem}.inp`, out: `${stem}.out`, res, text, level: lv.level, kind, family: lv.family });
     }
   }
-  return { type, dataType, estimator, noMeans, rule, signs, signSensitive, l1Differs, n: spec.n, nSim, reps: o.reps, nmax: o.nmax, seeds: { true: o.seedTrue, misspec: o.seedMisspec }, st, catItems, levels, slevels, structural, misspec, files };
+  return { type, dataType, estimator, srcEstimator, estMismatch, noMeans, rule, signs, signSensitive, l1Differs, n: spec.n, nSim, reps: o.reps, nmax: o.nmax, seeds: { true: o.seedTrue, misspec: o.seedMisspec }, st, catItems, levels, slevels, structural, misspec, files };
 }
 
 // ---------------------------------------------------------------- reading the Monte Carlo runs
