@@ -2117,12 +2117,21 @@ function connectDlg() {
     };
     d.innerHTML = offer();
     d.showModal();
-    tryNow(true);
-    timer = setInterval(() => tryNow(), 3000);
+    // Chrome asks the user before a web page may reach an app on this computer (the loopback-network permission): look
+    // for the app by itself only when that is already allowed (or not asked by the browser), else when the user clicks
+    const watch = () => { if (!timer) timer = setInterval(() => tryNow(), 3000); };
+    (async () => {
+      let state = 'granted';
+      try { state = (await navigator.permissions.query({ name: 'loopback-network' })).state; } catch { /* not asked by this browser */ }
+      if (stop) return;
+      if (state === 'granted') { tryNow(true); watch(); return; }
+      const s = $('#connState', d);
+      if (s) s.textContent = t('After starting the app, click “It is running”. Your browser may ask whether this page may reach apps on this device; allow it.', 'Uygulamayı başlattıktan sonra “Çalışıyor” düğmesine tıklayın. Tarayıcınız bu sayfanın bu cihazdaki uygulamalara erişmesine izin isteyebilir; izin verin.');
+    })();
     d.oncancel = () => done(); // Escape
     d.onclick = (e) => {
       if (e.target.closest('[data-dlg-close]') || e.target === d) done();
-      else if (e.target.closest('[data-dlg-retry]')) tryNow();
+      else if (e.target.closest('[data-dlg-retry]')) { tryNow(); watch(); }
     };
   });
   return connecting;
