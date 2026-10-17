@@ -786,6 +786,23 @@ export function sensCutoff(M, T, idx) {
 
 export const INDICES = ['srmr', 'rmsea', 'cfi'];
 
+/** Fewest admissible replications from which a cutoff is still computed: with 20 values the 5th percentile is their minimum. */
+export const MIN_REPS = 20;
+/**
+ * Cutoffs of one misspecified condition (rows M) against the correct model (rows T) by both rules. few = true when
+ * either condition has fewer than MIN_REPS admissible replications (e.g., after excluding improper solutions): then
+ * no cutoff is reported, instead of a number computed from a handful of values.
+ */
+export function conditionCutoffs(M, T) {
+  const few = M.length < MIN_REPS || T.length < MIN_REPS;
+  const hb = {}, sens = {};
+  INDICES.forEach((idx) => {
+    hb[idx] = few ? { value: NaN, rule: null, few: true } : hbCutoff(M, T, idx);
+    sens[idx] = few ? { value: NaN, sens: NaN, few: true } : sensCutoff(M, T, idx);
+  });
+  return { hb, sens, few };
+}
+
 /**
  * Summary of a finished DFI study. runs: {[fileName]: {out, res}} texts of the .out and _res.dat files;
  * policy: 'include' | 'exclude' (improper solutions).
@@ -821,12 +838,8 @@ export function summarizeDfi(plan, runs, policy = 'include') {
   INDICES.forEach((idx) => { out.level0.spec[idx] = idx === 'cfi' ? quantile(col(T, 'cfi'), 0.05) : quantile(col(T, idx), 0.95); });
   const cuts = (l, key) => {
     const M = use(byLevel[key]);
-    const hb = {}, sens = {};
-    INDICES.forEach((idx) => {
-      hb[idx] = M.length >= 2 && T.length >= 2 ? hbCutoff(M, T, idx) : { value: NaN, rule: null };
-      sens[idx] = M.length >= 2 && T.length >= 2 ? sensCutoff(M, T, idx) : { value: NaN, sens: 0 };
-    });
-    return { level: l.level, key, added: l.added, completed: byLevel[key].length, improper: byLevel[key].filter((x) => x.improper).length, used: M.length, hb, sens };
+    const c = conditionCutoffs(M, T);
+    return { level: l.level, key, added: l.added, completed: byLevel[key].length, improper: byLevel[key].filter((x) => x.improper).length, used: M.length, usedTrue: T.length, few: c.few, hb: c.hb, sens: c.sens };
   };
   out.levels = plan.levels.map((l) => cuts(l, l.level));
   out.slevels = (plan.slevels || []).map((l) => cuts(l, `S${l.level}`));

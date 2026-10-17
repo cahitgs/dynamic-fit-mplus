@@ -260,10 +260,13 @@ const pct = (x) => (fin(x) ? `${Math.round(x * 100)}%` : '—');
 export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
   if (!sum || !sum.ok) return '';
   const sensRule = sum.rule === 'sens';
-  let any90 = false;
+  let any90 = false, anyFew = false, anyLow = false;
+  // n/a = fewer than 20 admissible replications in the condition or in the correct model (dfi.js MIN_REPS)
   const cell = sensRule
-    ? (_c, s) => (fin(s.value) ? `${fit3(s.value)} (${pct(s.sens)})` : 'NONE')
-    : (c) => { if (!fin(c.value)) return 'NONE'; if (c.rule === '90/10') { any90 = true; return `${fit3(c.value)}<sup>a</sup>`; } return fit3(c.value); };
+    ? (_c, s) => { if (s.few) { anyFew = true; return 'n/a'; } return fin(s.value) ? `${fit3(s.value)} (${pct(s.sens)})` : 'NONE'; }
+    : (c) => { if (c.few) { anyFew = true; return 'n/a'; } if (!fin(c.value)) return 'NONE'; if (c.rule === '90/10') { any90 = true; return `${fit3(c.value)}<sup>a</sup>`; } return fit3(c.value); };
+  // a level whose cutoffs rest on fewer than 100 admissible replications is marked
+  const lvLabel = (l, label) => { const low = !l.few && (l.used < 100 || (l.usedTrue ?? 100) < 100); if (low) anyLow = true; return low ? `${label}<sup>b</sup>` : label; };
   const head = `<tr><th class="tl">${X(lang, 'Model', 'Model')}</th><th class="tl">${X(lang, 'Misspecification', 'Yanlış belirtme')}</th><th>SRMR</th><th>RMSEA</th><th>CFI</th></tr>`;
   const rows = [];
   const mism = !!plan.estMismatch; // observed WLSMV fit, ML cutoffs: shown side by side but not comparable
@@ -272,10 +275,10 @@ export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
     rows.push(`<tr><td class="tl">${mism ? X(lang, `Hypothesized model (observed, ${srcEst})`, `Hipotez modeli (gözlenen, ${srcEst})`) : X(lang, 'Hypothesized model (observed)', 'Hipotez modeli (gözlenen)')}</td><td class="tl">—</td><td>${fit3(emp.srmr)}</td><td>${fit3(emp.rmsea)}</td><td>${fit3(emp.cfi)}</td></tr>`);
   }
   rows.push(`<tr class="sub"><td colspan="5">${X(lang, 'Dynamic fit index cutoffs', 'Dinamik uyum indeksi kesme değerleri')}</td></tr>`);
-  sum.levels.forEach((l) => rows.push(`<tr><td class="tl">${X(lang, 'Level', 'Düzey')} ${l.level}</td><td class="tl">${levelText(plan, plan.levels[l.level - 1], lang, lab)}</td><td>${cell(l.hb.srmr, l.sens.srmr)}</td><td>${cell(l.hb.rmsea, l.sens.rmsea)}</td><td>${cell(l.hb.cfi, l.sens.cfi)}</td></tr>`));
+  sum.levels.forEach((l) => rows.push(`<tr><td class="tl">${lvLabel(l, `${X(lang, 'Level', 'Düzey')} ${l.level}`)}</td><td class="tl">${levelText(plan, plan.levels[l.level - 1], lang, lab)}</td><td>${cell(l.hb.srmr, l.sens.srmr)}</td><td>${cell(l.hb.rmsea, l.sens.rmsea)}</td><td>${cell(l.hb.cfi, l.sens.cfi)}</td></tr>`));
   if ((sum.slevels || []).length) {
     rows.push(`<tr class="sub"><td colspan="5">${X(lang, 'Structural misspecification (disturbance correlations)', 'Yapısal yanlış belirtme (bozulma korelasyonları)')}</td></tr>`);
-    sum.slevels.forEach((l) => rows.push(`<tr><td class="tl">${X(lang, 'Level', 'Düzey')} S${l.level}</td><td class="tl">${levelText(plan, plan.slevels[l.level - 1], lang, lab, true, true)}</td><td>${cell(l.hb.srmr, l.sens.srmr)}</td><td>${cell(l.hb.rmsea, l.sens.rmsea)}</td><td>${cell(l.hb.cfi, l.sens.cfi)}</td></tr>`));
+    sum.slevels.forEach((l) => rows.push(`<tr><td class="tl">${lvLabel(l, `${X(lang, 'Level', 'Düzey')} S${l.level}`)}</td><td class="tl">${levelText(plan, plan.slevels[l.level - 1], lang, lab, true, true)}</td><td>${cell(l.hb.srmr, l.sens.srmr)}</td><td>${cell(l.hb.rmsea, l.sens.rmsea)}</td><td>${cell(l.hb.cfi, l.sens.cfi)}</td></tr>`));
   }
   rows.push(`<tr class="sub"><td colspan="5">${X(lang, 'Fixed cutoffs', 'Sabit kesme değerleri')}</td></tr>`);
   rows.push(`<tr><td class="tl">Hu &amp; Bentler (1999)</td><td class="tl">—</td><td>&le;&nbsp;.08</td><td>&le;&nbsp;.06</td><td>&ge;&nbsp;.95</td></tr>`);
@@ -285,6 +288,8 @@ export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
   const ruleTr = sensRule
     ? 'Kesme değerleri %95 özgüllüğü korur; ulaştıkları duyarlılık parantez içindedir (McNeish, 2023; McNeish ve Wolf, 2024); NONE = pakette olduğu gibi duyarlılık %50’nin altında (Wolf ve McNeish, 2026)'
     : `Kesme değerleri 95/5 kuralına göredir${any90 ? '; <sup>a</sup>90/10 kuralı' : ''}; NONE = ne 95/5 ne de 90/10 kuralı dağılımları ayırmıştır`;
+  const fewEn = `${anyFew ? ' n/a = fewer than 20 admissible replications in this condition or in the correct model after excluding improper solutions; no cutoff was computed.' : ''}${anyLow ? ' <sup>b</sup>Cutoffs based on fewer than 100 admissible replications (Table 3).' : ''}`;
+  const fewTr = `${anyFew ? ' n/a = uygunsuz çözümler dışlandıktan sonra bu koşulda ya da doğru modelde 20’den az uygun tekrar kaldı; kesme değeri hesaplanmadı.' : ''}${anyLow ? ' <sup>b</sup>100’den az uygun tekrara dayanan kesme değerleri (Tablo 3).' : ''}`;
   const cum = plan.type === 'one' || (sum.levels.length < 2 && (sum.slevels || []).length < 2) ? '' : X(lang, ' Each level also contains the misspecifications of the lower levels.', ' Her düzey alt düzeylerin yanlış belirtmelerini de içerir.');
   // two caveats of McNeish & Wolf (2023a): the added paths are only a yardstick, and SRMR ≤ .08 has another origin
   const mw = cites(plan).mwCfa;
@@ -293,8 +298,8 @@ export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
   const warnEn = mism ? ` The observed fit was estimated with ${srcEst} for ordinal items, the cutoffs with ML from normal data; the two are not on the same metric and should not be compared.` : '';
   const warnTr = mism ? ` Gözlenen uyum sıralı maddeler için ${srcEst} ile, kesme değerleri normal veride ML ile kestirilmiştir; ikisi aynı ölçekte değildir ve karşılaştırılmamalıdır.` : '';
   const note = X(lang,
-    `<i>Note.</i>${warnEn} Values below the cutoff (SRMR, RMSEA) or above it (CFI) indicate misfit smaller than that level of misspecification.${cum}${yard} ${ruleEn}. ${apaInt(plan.reps, lang)} replications per condition; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'ordinal data' : 'normal data'}, ${esc(plan.estimator)}; improper solutions ${sum.policy === 'exclude' ? 'excluded' : 'retained'}.`,
-    `<i>Not.</i>${warnTr} Kesme değerinin altındaki (SRMR, RMSEA) ya da üstündeki (CFI) değerler, uyumsuzluğun o yanlış belirtme düzeyinden küçük olduğunu gösterir.${cum}${yard} ${ruleTr}. Koşul başına ${apaInt(plan.reps, lang)} tekrar; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'sıralı veri' : 'normal veri'}, ${esc(plan.estimator)}; uygunsuz çözümler ${sum.policy === 'exclude' ? 'dışlandı' : 'tutuldu'}.`);
+    `<i>Note.</i>${warnEn} Values below the cutoff (SRMR, RMSEA) or above it (CFI) indicate misfit smaller than that level of misspecification.${cum}${yard} ${ruleEn}.${fewEn} ${apaInt(plan.reps, lang)} replications per condition; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'ordinal data' : 'normal data'}, ${esc(plan.estimator)}; improper solutions ${sum.policy === 'exclude' ? 'excluded' : 'retained'}.`,
+    `<i>Not.</i>${warnTr} Kesme değerinin altındaki (SRMR, RMSEA) ya da üstündeki (CFI) değerler, uyumsuzluğun o yanlış belirtme düzeyinden küçük olduğunu gösterir.${cum}${yard} ${ruleTr}.${fewTr} Koşul başına ${apaInt(plan.reps, lang)} tekrar; <i>N</i>&nbsp;=&nbsp;${apaInt(plan.nSim, lang)}; ${plan.dataType === 'categorical' ? 'sıralı veri' : 'normal veri'}, ${esc(plan.estimator)}; uygunsuz çözümler ${sum.policy === 'exclude' ? 'dışlandı' : 'tutuldu'}.`);
   return `<table class="rtab" style="width:auto;min-width:440px"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table><p class="tnote">${note}</p>`;
 }
 
@@ -305,10 +310,10 @@ export function fitTable(emp, sum, plan, lang = 'en', lab = ID) {
 export function conditionsTable(sum, plan, lang = 'en') {
   if (!sum || !sum.ok) return '';
   const altHb = sum.rule === 'sens'; // Table 2 shows the sensitivity rule: here the 95/5 → 90/10 rule
-  let any90 = false;
+  let any90 = false, anyFew = false;
   const sc = altHb
-    ? (l, k) => { const c = l.hb[k]; if (!fin(c.value)) return 'NONE'; if (c.rule === '90/10') { any90 = true; return `${fit3(c.value)}<sup>a</sup>`; } return fit3(c.value); }
-    : (l, k) => { const c = l.sens[k]; return fin(c.value) ? `${fit3(c.value)} (${pct(c.sens)})` : `NONE (${pct(c.sens)})`; };
+    ? (l, k) => { const c = l.hb[k]; if (c.few) { anyFew = true; return 'n/a'; } if (!fin(c.value)) return 'NONE'; if (c.rule === '90/10') { any90 = true; return `${fit3(c.value)}<sup>a</sup>`; } return fit3(c.value); }
+    : (l, k) => { const c = l.sens[k]; if (c.few) { anyFew = true; return 'n/a'; } return fin(c.value) ? `${fit3(c.value)} (${pct(c.sens)})` : `NONE (${pct(c.sens)})`; };
   const colHead = altHb ? X(lang, 'Cutoff by the 95/5 rule (90/10 fallback)', '95/5 kuralına göre kesme değeri (90/10 yedekli)') : X(lang, 'Cutoff (sensitivity) at 95% specificity', '%95 özgüllükte kesme değeri (duyarlılık)');
   const head = `<tr class="hd"><td class="tl" rowspan="2">${X(lang, 'Condition', 'Koşul')}</td><td rowspan="2">${X(lang, 'Completed', 'Tamamlanan')}</td><td rowspan="2">${X(lang, 'Improper', 'Uygunsuz')}</td><td colspan="3">${colHead}</td></tr><tr class="hd2"><td>SRMR</td><td>RMSEA</td><td>CFI</td></tr>`;
   const l0 = sum.level0;
@@ -327,8 +332,8 @@ export function conditionsTable(sum, plan, lang = 'en') {
     ? `Her düzey için 90/10 yedekli 95/5 kuralına göre kesme değeri (${TR(mwRule)})${any90 ? '; <sup>a</sup>90/10 kuralı' : ''}; NONE = iki kural da dağılımları ayırmamıştır.`
     : `Her düzey için %95 özgüllüğü en yüksek duyarlılıkla koruyan kesme değeri; duyarlılık %95’ten başlayarak %1 adımlarla aranmıştır (McNeish, 2023; McNeish ve Wolf, 2024); bu, dynamic’in cfaOne, cfaHB, catOne ve catHB fonksiyonlarının kuralıdır (Wolf ve McNeish, 2026)${hierTr}. Pakette olduğu gibi duyarlılığı %50’nin altındaki kesme değerleri gösterilmez (NONE).`;
   const note = X(lang,
-    `<i>Note.</i> Completed = replications with both the hypothesized and the baseline model estimated (of ${apaInt(plan.reps, lang)}); Improper = replications with a non–positive definite residual or latent covariance matrix (Mplus TECH9). For the correct model the row shows the 95th percentile (5th for CFI), which keeps 95% specificity. ${ruleEn}`,
-    `<i>Not.</i> Tamamlanan = hipotez ve temel modelin ikisinin de kestirildiği tekrarlar (${apaInt(plan.reps, lang)} tekrardan); Uygunsuz = artık ya da örtük kovaryans matrisi pozitif tanımlı olmayan tekrarlar (Mplus TECH9). Doğru model satırı %95 özgüllüğü sağlayan 95. yüzdeliği (CFI için 5.) gösterir. ${ruleTr}`);
+    `<i>Note.</i> Completed = replications with both the hypothesized and the baseline model estimated (of ${apaInt(plan.reps, lang)}); Improper = replications with a non–positive definite residual or latent covariance matrix (Mplus TECH9). For the correct model the row shows the 95th percentile (5th for CFI), which keeps 95% specificity. ${ruleEn}${anyFew ? ' n/a = fewer than 20 admissible replications in this condition or in the correct model after excluding improper solutions.' : ''}`,
+    `<i>Not.</i> Tamamlanan = hipotez ve temel modelin ikisinin de kestirildiği tekrarlar (${apaInt(plan.reps, lang)} tekrardan); Uygunsuz = artık ya da örtük kovaryans matrisi pozitif tanımlı olmayan tekrarlar (Mplus TECH9). Doğru model satırı %95 özgüllüğü sağlayan 95. yüzdeliği (CFI için 5.) gösterir. ${ruleTr}${anyFew ? ' n/a = uygunsuz çözümler dışlandıktan sonra bu koşulda ya da doğru modelde 20’den az uygun tekrar kaldı.' : ''}`);
   return `<table class="rtab" style="width:auto;min-width:440px"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table><p class="tnote">${note}</p>`;
 }
 
@@ -417,8 +422,13 @@ export function resultsText(emp, sum, plan, interp, lang = 'en', interpS = null)
       `${notConv.length} koşulda Mplus bazı tekrarlarda yakınsamamıştır (en çok ${apaInt(plan.reps, lang)} tekrarın ${apaInt(mx, lang)}’i; Tablo 3, Tamamlanan); bu tekrarların uyum indeksi yoktur ve kesme değeri dağılımlarına girmezler.`));
   }
   // excluding improper solutions can leave too few replications for a cutoff (e.g., a Heywood case at every level)
-  const empty = sum.policy === 'exclude' ? [sum.level0, ...allLv].filter((l) => l && l.used < 2) : [];
-  if (empty.length) sim.push(X(lang, `In ${empty.length === 1 ? 'one condition' : `${numWord(empty.length, lang)} conditions`}, (nearly) all replications were improper, so no cutoff could be computed after excluding them.`, `${empty.length} koşulda tekrarların (neredeyse) tamamı uygunsuz olduğundan, bunlar dışlandıktan sonra kesme değeri hesaplanamamıştır.`));
+  // fewer than 20 admissible replications (dfi.js MIN_REPS) in a condition or in the correct model: no cutoff (n/a)
+  const few = allLv.filter((l) => l.few);
+  if (few.length) {
+    const why = sum.policy === 'exclude' ? X(lang, ' after excluding improper solutions', ' uygunsuz çözümler dışlandıktan sonra') : '';
+    sim.push(X(lang, `In ${few.length === 1 ? 'one condition' : `${numWord(few.length, lang)} conditions`}, fewer than 20 admissible replications remained${why} (Table 3), so no cutoff was computed there (n/a in Table 2).`,
+      `${few.length} koşulda${why} 20’den az uygun tekrar kaldığından (Tablo 3) orada kesme değeri hesaplanmamıştır (Tablo 2’de n/a).`));
+  }
   sim.push(X(lang, 'Figure 1 shows the distributions of the fit indices under the correct and the misspecified models.', 'Şekil 1, doğru ve yanlış belirtilmiş modellerde uyum indekslerinin dağılımlarını göstermektedir.'));
   return `<p>${out.join(' ')}</p><p>${sim.join(' ')}</p>`;
 }

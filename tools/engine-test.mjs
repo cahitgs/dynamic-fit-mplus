@@ -23,6 +23,7 @@ import { detectMplus, runEngine } from '../engines.mjs';
 import { parseTable, toMplusDat } from '../public/lib/data.js';
 import { buildCfaInp } from '../public/lib/mplus.js';
 import * as D from '../public/lib/dfi.js';
+import * as R from '../public/lib/report.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -65,6 +66,17 @@ const pdf = D.parseStdModel('𝐸𝑥𝑡𝑟𝑎𝑣𝑒𝑟𝑠𝑖𝑜𝑛 = 
 check(pdf.by.length === 10 && pdf.by[0].f === 'EXTRAVER' && pdf.labels.EXTRAVER === 'Extraversion' && pdf.by[1].est === -0.705 && pdf.by[9].ind === 'E10' && pdf.by[9].est === -0.703, `a model statement copied from a PDF is read (${pdf.by.length} loadings; factor ${pdf.by[0].f} = "${pdf.labels.EXTRAVER}")`);
 const two = D.parseStdModel('Extraversion1 =~ .7*a1 + .6*a2 + .5*a3\nExtraversion2 =~ .7*b1 + .6*b2 + .5*b3\nExtraversion1 ~~ .3*Extraversion2');
 check(two.by[0].f === 'EXTRAVER' && two.by[3].f === 'EXTRAVE2' && two.with[0].a === 'EXTRAVER' && two.with[0].b === 'EXTRAVE2' && two.labels.EXTRAVE2 === 'Extraversion2' && !('A1' in two.labels), `long names are shortened uniquely for Mplus (${two.by[0].f}, ${two.by[3].f}); short names get no label`);
+// too few admissible replications (e.g., after excluding improper solutions): no cutoff, instead of a number from a handful
+const rowsOf = (n, s, step = 1e-5) => Array.from({ length: n }, (_, i) => ({ srmr: s + i * step, rmsea: s + i * step, cfi: 1 - s - i * step, improper: false }));
+const cc2 = D.conditionCutoffs(rowsOf(2, 0.05), rowsOf(500, 0.02)), cc20 = D.conditionCutoffs(rowsOf(20, 0.05), rowsOf(500, 0.02));
+check(cc2.few && cc2.hb.rmsea.few && !Number.isFinite(cc2.hb.rmsea.value) && !Number.isFinite(cc2.sens.cfi.value) && !cc20.few && Number.isFinite(cc20.hb.rmsea.value), 'fewer than 20 admissible replications give no cutoff; 20 still do');
+{
+  const mk = (used, few) => ({ used, usedTrue: 493, completed: 500, improper: 500 - used, few, hb: Object.fromEntries(['srmr', 'rmsea', 'cfi'].map((k) => [k, few ? { value: NaN, rule: null, few: true } : { value: 0.05, rule: '95/5' }])), sens: Object.fromEntries(['srmr', 'rmsea', 'cfi'].map((k) => [k, few ? { value: NaN, sens: NaN, few: true } : { value: 0.05, sens: 0.95 }])) });
+  const fake = { ok: true, rule: 'hb', policy: 'exclude', reps: 500, level0: { completed: 500, improper: 7, used: 493, spec: { srmr: 0.02, rmsea: 0.03, cfi: 0.99 } }, levels: p1.levels.map((l, i) => ({ level: l.level, ...mk(i === 0 ? 50 : 2, i > 0) })), slevels: [] };
+  const t2 = R.fitTable(null, fake, p1, 'en'), t3 = R.conditionsTable(fake, p1, 'en'), rs = R.resultsText(null, fake, p1, [], 'en');
+  check(/>n\/a</.test(t2) && /Level 1<sup>b<\/sup>/.test(t2) && /fewer than 20 admissible/.test(t2) && /fewer than 100 admissible/.test(t2), 'Table 2 shows n/a for too few replications and marks levels below 100');
+  check(/>n\/a</.test(t3) && /fewer than 20 admissible/.test(t3) && /two conditions, fewer than 20 admissible replications remained after excluding improper solutions/.test(rs), 'Table 3 and the results text explain n/a');
+}
 const dfErr = (txt) => { try { D.planDfi({ ...D.parseStdModel(txt), n: 300 }, {}); return ''; } catch (e) { return e.message; } };
 check(/df = 0/.test(dfErr('F =~ .7*a + .6*b + .5*c')) && !dfErr('F1 =~ .7*a + .6*b\nF2 =~ .7*c + .6*d\nF1 ~~ .3*F2'), 'models without degrees of freedom are refused (3-item one-factor: df = 0; 2 × 2 items: df = 1 runs)');
 // hier2 (structural misspecification) against dynamic: pairs and disturbance covariances of a 6-factor model

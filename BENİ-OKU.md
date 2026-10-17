@@ -16,7 +16,7 @@ En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını 
 3. **Settings:**
    - Veri üretimi: sıralı/WLSMV ya da `dynamic` gibi normal/ML. Sıralı maddelerde varsayılan WLSMV'dir. Normal/ML seçilirse rapor, WLSMV ile kestirilen uyumu bu kesme değerleriyle karşılaştırmaz; ikisi aynı ölçekte değildir.
    - Tekrar sayısı: varsayılan 500.
-   - Uygunsuz çözümler: varsayılan "Retain" (dynamic gibi). Bu ayarı değiştirmek yeniden çalıştırma gerektirmez.
+   - Uygunsuz çözümler: varsayılan "Retain" (dynamic gibi). Bu ayarı değiştirmek yeniden çalıştırma gerektirmez. 20'den az uygun tekrar kalan koşulda kesme değeri verilmez (n/a); 100'den az kalan düzeyler Tablo 2'de işaretlenir.
    - Kesme kuralı model türünden gelir: sürekli maddeler ve ikinci düzey modellerde 90/10 yedekli 95/5; sıralı tek ve çok faktörlü modellerde %95 özgüllükte en yüksek duyarlılık (`catOne`/`catHB` gibi). Öteki kural Tablo 3'te verilir.
 4. **Run:** CSV yolunda önce CFA, ardından düzey başına iki Monte Carlo koşusu çalışır: hipotez modeli ve CFI için temel model, aynı veride.
 5. **Report:** Yöntem, yük tablosu, uyum ve kesme değerleri (Tablo 2), simülasyon koşulları ve uygunsuz çözüm sayıları (Tablo 3), dağılım şekli. Yazdırılabilir, HTML ve tekrar verisi (CSV) olarak indirilebilir.

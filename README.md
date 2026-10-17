@@ -70,7 +70,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 3. **Settings:**
    - Response format: ordinal or normal data. Ordinal items are simulated as ordinal and analyzed with WLSMV by default. If you choose normal data with ML for them instead (as dynamic's default functions do), the report does not compare your WLSMV fit with those cutoffs, because the two are not on the same metric.
    - Replications: 500 by default.
-   - Improper solutions: retain or exclude.
+   - Improper solutions: retain or exclude. A condition with fewer than 20 admissible replications gets no cutoff (n/a); levels with fewer than 100 are marked in Table 2.
 4. **Run:** for the correct model and for each misspecification level, Mplus runs two Monte Carlo inputs:
    - the hypothesized model;
    - the baseline model, which gives CFI.
@@ -106,7 +106,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.5) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.6) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 
