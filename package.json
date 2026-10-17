@@ -1,6 +1,6 @@
 {
   "name": "dynamic-fit-mplus",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Dynamic fit index (DFI) cutoffs for CFA and second-order models, simulated with Mplus on your own computer.",
   "author": "Mehmet Cahit Marangoz",
   "license": "AGPL-3.0-only",
@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node serve.mjs",
     "engine-test": "node tools/engine-test.mjs",
-    "build-exe": "node tools/build-exe.mjs"
+    "build-exe": "node tools/build-exe.mjs",
+    "build-pages": "node tools/build-pages.mjs"
   }
 }

@@ -3,9 +3,13 @@
 // runs Mplus / R jobs (queue, 2 at a time) and streams every job change as Server-Sent Events.
 //   node serve.mjs              → http://localhost:3401 (next free port, up to +20, if busy)
 //   node serve.mjs --open       → also opens the browser
-// Environment: PORT, PROJECTS_DIR (default ./projects), MPLUS_PATH (Mplus.exe), RSCRIPT_PATH (Rscript.exe)
+// Environment: PORT, PROJECTS_DIR (default ./projects), MPLUS_PATH (Mplus.exe), RSCRIPT_PATH (Rscript.exe),
+//              WEB_ORIGINS (web pages that may ask whether the app is running; default the published web version;
+//              "none" turns this off)
 // Only this computer can connect: the server listens on the loopback address and refuses requests that
-// come from other host names or other web sites.
+// come from other host names or other web sites. The one exception: the published web version of the app may
+// ask GET /api/health whether the app is running (it then offers a link to it); it gets the name, version and
+// port, nothing else, and cannot read or change projects or run anything.
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -29,6 +33,9 @@ const FILE_LIMIT = 100 * 1024 * 1024;
 const MAX_JOBS = 200;
 const TAIL_LINES = 40;
 const ALL_ENGINES = ['mplus', 'r', 'webr'];
+const APP_VERSION = '1.0.4';
+// web pages (exact origins) that may ask whether the app is running: the published web version of the app
+const WEB_ORIGINS = new Set(String(process.env.WEB_ORIGINS ?? 'https://cahitgs.github.io').split(',').map((s) => s.trim()).filter((s) => s && s !== 'none'));
 let PORT = PREFERRED_PORT;
 
 const MIME = {
@@ -58,7 +65,7 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 }
 function sendError(res, status, code, message, extraHeaders = {}) {
   if (res.headersSent) { res.end(); return; }
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extraHeaders });
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extraHeaders });
   res.end(JSON.stringify({ error: message, code }));
 }
 
@@ -133,6 +140,8 @@ function hostAllowed(req) {
   const m = host.match(/^(\[[0-9a-f:.]+\]|[^:]+)(?::\d+)?$/);
   return !!m && LOOPBACK.has(m[1]);
 }
+// The web version's origin when the request comes from it, else null (it may only read GET /api/health).
+const webOrigin = (req) => (typeof req.headers.origin === 'string' && WEB_ORIGINS.has(req.headers.origin) ? req.headers.origin : null);
 // State-changing requests must come from this app's own pages (or from a non-browser client).
 function originAllowed(req) {
   const site = req.headers['sec-fetch-site'];
@@ -341,6 +350,9 @@ async function queueRun(id, dir, body) {
   const engine = String(body.engine || '');
   if (engine === 'webr') throw new HttpError(400, 'BAD_ENGINE', 'webR runs in the browser; the server only runs "mplus" and "r".');
   if (!ENGINE_IDS.includes(engine)) throw new HttpError(400, 'BAD_ENGINE', 'Unknown engine. Use "mplus" or "r".');
+  // only the engines the interface uses (ENGINES in app.js; this app: Mplus only), so that R scripts cannot be run
+  const usable = appEngines();
+  if (usable && !usable.includes(engine)) throw new HttpError(403, 'ENGINE_OFF', `This app does not run ${engine === 'r' ? 'R' : engine}.`);
   const file = checkFile(body.file);
   if (path.extname(file).toLowerCase() !== RUN_EXT[engine]) {
     throw new HttpError(400, 'BAD_FILE_TYPE', engine === 'mplus' ? 'Mplus runs .inp files.' : 'R runs .R files.');
@@ -379,10 +391,11 @@ async function health(res, refresh) {
       r: { ok: r.ok, path: r.path, version: r.version, jsonlite: r.jsonlite, error: r.error, asciiWorkaround: r.asciiWorkaround },
     },
     cpus: os.cpus().length, port: PORT, platform: process.platform, concurrency: CONCURRENCY, projectsDir: PROJECTS,
+    app: 'dynamic-fit-mplus', version: APP_VERSION,
   });
 }
 function events(req, res) {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   if (req.method === 'HEAD') { res.end(); return; }
   res.on('error', () => clients.delete(res));
   req.on('close', () => clients.delete(res));
@@ -401,7 +414,8 @@ async function api(req, res, parts, query) {
   const method = req.method;
   if (!['GET', 'HEAD'].includes(method) && !originAllowed(req)) throw new HttpError(403, 'BAD_ORIGIN', 'Requests from other web sites are not allowed.');
   const [a, b, c, d] = parts;
-  if (a === 'health' && parts.length === 1) { only(method, 'GET'); return health(res, query.get('refresh') === '1'); }
+  // re-detecting the engines starts Mplus: only this app's own pages may ask for it
+  if (a === 'health' && parts.length === 1) { only(method, 'GET'); return health(res, query.get('refresh') === '1' && originAllowed(req)); }
   if (a === 'events' && parts.length === 1) { only(method, 'GET'); return events(req, res); }
   if (a === 'jobs') {
     if (parts.length === 1) { only(method, 'GET'); return send(res, 200, [...jobs.values()].map(publicJob)); }
@@ -470,7 +484,25 @@ async function handler(req, res) {
     const rawPath = q >= 0 ? req.url.slice(0, q) : req.url;
     const query = new URLSearchParams(q >= 0 ? req.url.slice(q + 1) : '');
     const segs = splitPath(rawPath);
-    if (segs[0] === 'api') return await api(req, res, segs.slice(1).filter((s) => s !== ''), query);
+    if (segs[0] === 'api') {
+      const rest = segs.slice(1).filter((s) => s !== '');
+      // the web version (another origin) may only learn whether the app runs here, and on which port; this answer and
+      // its preflight (Chrome's check for pages that call a server on this computer) are all it can read
+      const wo = webOrigin(req);
+      if (wo && rest.length === 1 && rest[0] === 'health') {
+        res.setHeader('Access-Control-Allow-Origin', wo);
+        res.setHeader('Vary', 'Origin');
+        if (req.method === 'OPTIONS') {
+          const h = { 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '600' };
+          if (req.headers['access-control-request-private-network'] === 'true') h['Access-Control-Allow-Private-Network'] = 'true';
+          res.writeHead(204, h);
+          return res.end();
+        }
+        only(req.method, 'GET');
+        return send(res, 200, { app: 'dynamic-fit-mplus', version: APP_VERSION, port: PORT });
+      }
+      return await api(req, res, rest, query);
+    }
     return await serveStatic(req, res, segs);
   } catch (e) {
     if (e instanceof HttpError) {

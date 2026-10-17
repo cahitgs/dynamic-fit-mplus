@@ -45,6 +45,14 @@ Your data stay on your computer: the server listens only on localhost, runs Mplu
 3. Your projects are saved in a `projects` folder next to the `.exe`.
 4. To stop the app, close the console window.
 
+### Web version
+
+Open https://cahitgs.github.io/dynamic-fit-mplus/app/ to look at the interface in your browser. The analyses still run in the Windows app on your computer:
+- If the app is not running, the first window offers the download.
+- If it is running, the page links to it (http://localhost:3401, or the next free port). The app also opens its own tab when it starts.
+
+The web page keeps no projects and sends no data anywhere. The only thing it may ask the app is whether it is running.
+
 ### From source
 
 ```
@@ -97,7 +105,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.3) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.4) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 

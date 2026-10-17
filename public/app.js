@@ -99,7 +99,29 @@ const isActive = (j) => !!(j && (j.status === 'queued' || j.status === 'running'
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,7}$/;
 const numOr = (v) => { const x = Number(String(v ?? '').trim().replace(',', '.')); return String(v ?? '').trim() === '' || !Number.isFinite(x) ? NaN : x; };
 
+// The web version (e.g. https://cahitgs.github.io/…/app/) is the same interface without a server: the analyses run in
+// the app on this computer (DynamicFitMplus.exe or `node serve.mjs`), which serves this interface itself at
+// http://localhost:port. The web version only asks whether the app is running (GET /api/health) and links to it;
+// otherwise its first window offers the download. ?runner=PORT limits the search to one port (tests).
+const LOOP = ['localhost', '127.0.0.1', '[::1]', '::1'];
+const QS = new URLSearchParams(location.search);
+const HOSTED = !(location.protocol === 'http:' && LOOP.includes(location.hostname)) || QS.has('hosted');
+const EXE_URL = 'https://github.com/cahitgs/dynamic-fit-mplus/releases/latest/download/DynamicFitMplus.exe';
+async function findRunner() {
+  const ports = QS.get('runner') ? [Number(QS.get('runner'))] : Array.from({ length: 21 }, (_, i) => 3401 + i);
+  const probe = async (p) => {
+    const r = await fetch(`http://localhost:${p}/api/health`, { signal: AbortSignal.timeout(2500) });
+    const h = await r.json();
+    if (!r.ok || h.app !== 'dynamic-fit-mplus' || h.port !== p) throw new Error('not the app');
+    return p;
+  };
+  try { return await Promise.any(ports.map(probe)); } catch { return null; }
+}
 async function api(path, opts = {}) {
+  if (HOSTED) { // the web version has no server: the work is done in the app on this computer
+    connectDlg();
+    throw new Error(t('Projects are kept and run by the app on your computer; open it to continue.', 'Projeler bilgisayarınızdaki uygulamada saklanır ve çalıştırılır; devam etmek için onu açın.'));
+  }
   const o = { ...opts };
   if (o.json !== undefined) { o.body = JSON.stringify(o.json); o.headers = { 'Content-Type': 'application/json' }; delete o.json; }
   const res = await fetch('/api' + path, o);
@@ -539,12 +561,14 @@ function runInfo() {
 function engineAvail() {
   if (!S.health) return { ok: false, checking: true };
   const h = S.health.engines && S.health.engines.mplus;
+  if (HOSTED) return { ok: false, notRunning: true, error: t('This is the web version. The analyses run in the app on your computer: download DynamicFitMplus.exe and start it, or open it if it is already running.', 'Bu web sürümüdür. Analizler bilgisayarınızdaki uygulamada çalışır: DynamicFitMplus.exe dosyasını indirip başlatın ya da çalışıyorsa açın.') };
   if (!h) return { ok: false, error: t('The server cannot be reached. Start the app with "node serve.mjs".', 'Sunucuya ulaşılamıyor. Uygulamayı "node serve.mjs" ile başlatın.') };
   return h;
 }
 const missingMsg = () => t('Mplus was not found on this computer. Install Mplus, or start the server with MPLUS_PATH set to the full path of Mplus.exe.', 'Bu bilgisayarda Mplus bulunamadı. Mplus programını kurun ya da sunucuyu, MPLUS_PATH ortam değişkeni Mplus.exe dosyasının tam yolunu gösterecek biçimde başlatın.');
 function missingHtml(av) {
   const err = av.error || missingMsg();
+  if (av.notRunning) return `${esc(err)}<div class="mt-2 flex flex-wrap gap-2"><a class="btn btn-sm btn-primary" href="${EXE_URL}" download>${icon('download', 15)}${t('Download for Windows', 'Windows için indir')}</a><button class="btn btn-sm" data-act="recheck">${icon('arrow', 15)}${t('Open the app', 'Uygulamayı aç')}</button></div>`;
   const fix = /MPLUS_PATH/.test(err) ? '' : `<br><span class="small">${esc(missingMsg())}</span>`;
   return `${esc(err)}${fix}<div class="mt-2"><button class="btn btn-sm" data-act="recheck">${icon('refresh', 15)}${t('Check again', 'Yeniden denetle')}</button></div>`;
 }
@@ -741,6 +765,7 @@ function enginePill() {
   const h = engineAvail();
   if (h.checking) return `<span class="pill" data-engine="mplus"><span class="mdot"></span>Mplus<span class="pill-label"> ${t('checking', 'denetleniyor')}</span></span>`;
   if (h.ok) return `<span class="pill" data-engine="mplus" data-tip="${esc(h.path || '')}" tabindex="0"><span class="mdot ${anyActive() ? 'run' : 'ok'}"></span>Mplus ${esc(h.version || '')}<span class="pill-label"> ${t('ready', 'hazır')}</span></span>`;
+  if (h.notRunning) return `<button class="pill" data-act="recheck" data-tip="${esc(h.error)}"><span class="mdot bad"></span>${t('Web version', 'Web sürümü')}<span class="pill-label"> · ${t('open the app', 'uygulamayı aç')}</span></button>`;
   return `<span class="pill" data-engine="mplus" data-tip="${esc(h.error || missingMsg())}" tabindex="0"><span class="mdot bad"></span>Mplus<span class="pill-label"> ${t('not found', 'bulunamadı')}</span></span>`;
 }
 function renderTop() {
@@ -1732,7 +1757,7 @@ const ACT = {
   pickOut() { $('#fileOut').click(); },
   async loadSample() {
     try {
-      const res = await fetch('/data/sample.csv');
+      const res = await fetch('data/sample.csv'); // relative: also next to the web version
       if (!res.ok) throw new Error(t('The sample data were not found (data/sample.csv).', 'Örnek veri bulunamadı (data/sample.csv).'));
       const txt = await res.text();
       if (!S.P || S.P.source.mode) await createProject('Sample · goal attainment');
@@ -1807,6 +1832,7 @@ const ACT = {
   setSigns(el) { S.P.design.signs = el.dataset.v === 'dynamic' ? 'dynamic' : 'invariant'; invalidate(); save(); render(); },
   figColor(el) { S.P.design.figColor = el.dataset.v === 'color'; save(); render(); },
   async recheck() {
+    if (HOSTED) { connectDlg(); return; } // the web version: offer or open the app on this computer
     try { S.health = await api('/health?refresh=1'); } catch (e) { toast(e.message, 'err'); }
     render();
   },
@@ -2059,12 +2085,57 @@ function connectEvents() {
   setInterval(() => { document.querySelectorAll('[data-since]').forEach((x) => { x.textContent = clock(Date.now() - Number(x.dataset.since)); }); }, 1000);
 }
 
+// The web version: the first window offers the Windows app; once the app runs on this computer (it opens its own tab
+// when it starts), the window links to it. The web version itself keeps no projects and runs nothing.
+let connecting = null;
+function connectDlg() {
+  if (connecting) return connecting;
+  connecting = new Promise((resolve) => {
+    const d = $('#dlg');
+    d.onclose = null;
+    const li = (n, s) => `<li class="flex gap-3"><span class="step-n">${n}</span><span>${s}</span></li>`;
+    const head = (title) => `<div class="flex items-start justify-between gap-3 mb-2"><h2 class="h2">${title}</h2><button class="btn btn-ghost icon-btn" data-dlg-close aria-label="${t('Close', 'Kapat')}">${icon('x')}</button></div>`;
+    const offer = () => `<div class="p-6">${head(t('Run Dynamic Fit for Mplus on your computer', 'Dynamic Fit for Mplus’ı bilgisayarınızda çalıştırın'))}
+      <p class="text-ink-2 small mb-4">${t('The simulations run in Mplus on your own computer, so the analyses are done in the Windows app. Your data never leave your computer.', 'Simülasyonlar kendi bilgisayarınızdaki Mplus’ta çalışır; bu yüzden analizler Windows uygulamasında yapılır. Verileriniz bilgisayarınızdan çıkmaz.')}</p>
+      <ol class="grid gap-3 small mb-5">${li(1, t('Download <b>DynamicFitMplus.exe</b> (89 MB). It needs Windows and Mplus 8.x; nothing is installed.', '<b>DynamicFitMplus.exe</b> dosyasını indirin (89 MB). Windows ve Mplus 8.x gerekir; kurulum yapılmaz.'))}${li(2, t('Start it. The file is not signed, so Windows may ask once: <i>More info → Run anyway</i>.', 'Başlatın. Dosya imzasız olduğundan Windows bir kez sorabilir: <i>Ek bilgi → Yine de çalıştır</i>.'))}${li(3, t('The app opens in a new browser tab. Your projects are saved in a <i>projects</i> folder next to the file.', 'Uygulama tarayıcıda yeni bir sekmede açılır. Projeleriniz dosyanın yanındaki <i>projects</i> klasörüne kaydedilir.'))}</ol>
+      <div class="flex flex-wrap items-center gap-2"><a class="btn btn-primary" href="${EXE_URL}" download autofocus>${icon('download', 16)}${t('Download for Windows', 'Windows için indir')}</a><button class="btn" data-dlg-retry>${icon('refresh', 16)}${t('It is running', 'Çalışıyor')}</button></div>
+      <p class="hint mt-3" id="connState" role="status">${t('Looking for the app on this computer…', 'Uygulama bu bilgisayarda aranıyor…')}</p>
+      <p class="hint mt-1">${t('You can close this window to look around; the analyses need the app. An app older than version 1.0.4 is not found from here, but its own tab works.', 'Göz atmak için bu pencereyi kapatabilirsiniz; analizler için uygulama gerekir. 1.0.4’ten eski bir uygulama buradan bulunamaz, ama kendi sekmesi çalışır.')}</p></div>`;
+    const found = (p) => `<div class="p-6">${head(t('The app is running on this computer', 'Uygulama bu bilgisayarda çalışıyor'))}
+      <p class="text-ink-2 small mb-5">${t('Dynamic Fit for Mplus is running and has its own tab. Continue there, or open it in this tab.', 'Dynamic Fit for Mplus çalışıyor ve kendi sekmesinde açık. Orada devam edin ya da bu sekmede açın.')}</p>
+      <div class="flex flex-wrap items-center gap-2"><a class="btn btn-primary" href="http://localhost:${p}/" autofocus>${icon('arrow', 16)}${t('Open the app', 'Uygulamayı aç')}</a></div>
+      <p class="hint mt-3 mono">http://localhost:${p}/</p></div>`;
+    let stop = false, timer = null;
+    const done = () => { if (stop) return; stop = true; clearInterval(timer); if (d.open) d.close(); connecting = null; resolve(); };
+    const tryNow = async (first = false) => {
+      const p = await findRunner();
+      if (stop) return;
+      if (p) { clearInterval(timer); d.innerHTML = found(p); return; }
+      if (first) return;
+      const s = $('#connState', d);
+      if (s) s.textContent = t('Not running yet; checking every few seconds.', 'Henüz çalışmıyor; birkaç saniyede bir yeniden bakılıyor.');
+    };
+    d.innerHTML = offer();
+    d.showModal();
+    tryNow(true);
+    timer = setInterval(() => tryNow(), 3000);
+    d.oncancel = () => done(); // Escape
+    d.onclick = (e) => {
+      if (e.target.closest('[data-dlg-close]') || e.target === d) done();
+      else if (e.target.closest('[data-dlg-retry]')) tryNow();
+    };
+  });
+  return connecting;
+}
+
+let initialHash = '';
 async function init() {
   bindGlobal();
-  const initialHash = location.hash;
+  initialHash = location.hash;
   routeFromHash();
-  render();
   if (initialHash) history.replaceState(null, '', initialHash);
+  if (HOSTED) { S.health = { engines: {}, offline: true }; render(); connectDlg(); return; } // the web version
+  render();
   api('/health').then((h) => { S.health = h; }, () => { S.health = { engines: {}, offline: true }; }).then(() => render());
   connectEvents();
   try {
