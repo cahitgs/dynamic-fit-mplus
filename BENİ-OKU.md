@@ -4,7 +4,7 @@ Doğrulayıcı ve ikinci düzey faktör modelleri için **dinamik uyum indeksi (
 
 ## Başlatma
 
-En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını indirip çift tıklayın (kurulum gerekmez, projeler exe'nin yanındaki `projects` klasörüne yazılır). Kaynaktan çalıştırmak için `baslat.bat` dosyasına çift tıklayın ya da bu klasörde `node serve.mjs` çalıştırın. Adres http://localhost:3401 (dolu ise 3402–3421). Gerekenler Mplus 8.x (8.3 ile denendi; ücretsiz demo en çok 6 maddeyle çalışır) ve kaynaktan çalıştırırken Node.js 18+'dır; npm paketi gerekmez. Arayüz biçemini ve yazı tiplerini internetten yükler. Exe'yi yeniden derlemek için `node tools/build-exe.mjs` (Node 20.12+ ve ilk seferde internet gerekir; `postject` aracı npx ile iner).
+En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını indirip çift tıklayın (kurulum gerekmez, projeler exe'nin yanındaki `projects` klasörüne yazılır). Kaynaktan çalıştırmak için `baslat.bat` dosyasına çift tıklayın ya da bu klasörde `node serve.mjs` çalıştırın. Adres http://localhost:3401 (dolu ise 3402–3421). Gerekenler Mplus 8.x (8.3 ile denendi; ücretsiz demo en çok 6 maddeyle çalışır) ve kaynaktan çalıştırırken Node.js 18+'dır; npm paketi gerekmez. Arayüz biçemini ve yazı tiplerini internetten yükler. Yayımlanan web sayfalarında (tanıtım sayfası ve web sürümü) çerezsiz, kişisel veri toplamayan bir ziyaretçi sayacı (GoatCounter) vardır; bilgisayarda çalışan uygulamada yoktur. Exe'yi yeniden derlemek için `node tools/build-exe.mjs` (Node 20.12+ ve ilk seferde internet gerekir; `postject` aracı npx ile iner).
 
 ## Kullanım (5 adım)
 

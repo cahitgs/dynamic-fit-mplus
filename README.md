@@ -28,7 +28,7 @@ How large SRMR, RMSEA and CFI become under a given misspecification depends on t
   - References.
   - Export: print, HTML download, and a CSV of every replication.
 
-Your data stay on your computer: the server listens only on localhost, runs Mplus there and uploads nothing. The interface loads Tailwind CSS and its fonts from public CDNs, so it needs an internet connection to display correctly.
+Your data stay on your computer: the server listens only on localhost, runs Mplus there and uploads nothing. The interface loads Tailwind CSS and its fonts from public CDNs, so it needs an internet connection to display correctly. The published web pages (this project's GitHub Pages site and the web version) carry a privacy-friendly visitor counter (GoatCounter: no cookies, no personal data); the app running on your computer loads none.
 
 ## Requirements
 
