@@ -47,11 +47,10 @@ Your data stay on your computer: the server listens only on localhost, runs Mplu
 
 ### Web version
 
-Open https://cahitgs.github.io/dynamic-fit-mplus/app/ to look at the interface in your browser. The analyses still run in the Windows app on your computer:
-- If the app is not running, the first window offers the download.
-- If it is running, the page links to it (http://localhost:3401, or the next free port). The app also opens its own tab when it starts.
+https://cahitgs.github.io/dynamic-fit-mplus/app/ is the same interface in your browser, with nothing to install. Your projects are kept in the browser (IndexedDB) and nothing is sent anywhere. The Mplus part can be done in two ways:
 
-The web page keeps no projects and sends no data anywhere. The only thing it may ask the app is whether it is running.
+- **With the Windows app.** If the app is running on your computer, the page links to it (http://localhost:3401, or the next free port), and the app does the runs by itself. The only thing the page asks the app is whether it is running.
+- **With your own Mplus, by hand.** The page writes the Mplus inputs as a zip, with a batch file that runs them one after the other; you run them in Mplus and upload the `.out` and `_res.dat` files. The page checks that every output was made from the inputs of the study, then computes the cutoffs and writes the paper with the same code as the app. Raw data take two rounds: the CFA first, then the simulation.
 
 ### From source
 
@@ -106,7 +105,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.0.6) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.1.0) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 

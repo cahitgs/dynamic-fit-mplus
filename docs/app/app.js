@@ -6,6 +6,10 @@
 // The model comes from one of three sources: raw data (CSV; the CFA runs in Mplus first), an Mplus output of a
 // fitted model (.out), or standardized estimates entered by hand. Dynamic fit index (DFI) cutoffs are then
 // simulated with Mplus Monte Carlo runs written by lib/dfi.js (a port of the 'dynamic' R package).
+//
+// The web version (HOSTED: the page served from GitHub Pages) has no server: it keeps the projects in the browser
+// (IndexedDB), writes the Mplus inputs for the user to run and reads the outputs back (ctrlRunHosted), or hands
+// over to the Windows app when that runs on this computer. The local app's code paths are unchanged.
 
 // ===== APP CONFIG — the only two lines a project edits to pick its engines and languages =====
 const ENGINES = ['mplus'];  // one or more of 'mplus' | 'r' | 'webr'
@@ -17,6 +21,7 @@ import * as R from './lib/report.js';
 import { dfiChart, sparkline, esc } from './lib/charts.js';
 import * as D from './lib/dfi.js';
 import * as MP from './lib/mplus.js';
+import { zipStore } from './lib/zip.js';
 
 const APP = 'Dynamic Fit for Mplus';
 const CFA = { input: 'cfa.inp', data: 'data.dat', out: 'cfa.out' };
@@ -107,6 +112,109 @@ const LOOP = ['localhost', '127.0.0.1', '[::1]', '::1'];
 const QS = new URLSearchParams(location.search);
 const HOSTED = !(location.protocol === 'http:' && LOOP.includes(location.hostname)) || QS.has('hosted');
 const EXE_URL = 'https://github.com/cahitgs/dynamic-fit-mplus/releases/latest/download/DynamicFitMplus.exe';
+// ---- the web version's project store: the project.json and the files that the server keeps on disk, in this
+// browser's IndexedDB (a memory fallback when the browser refuses storage, e.g., in a private window). Nothing
+// leaves the browser; the Mplus runs are done by the user (ctrlRunHosted) or by the Windows app.
+const IDB_NAME = 'dynamic-fit-mplus';
+const idb = { db: null, mem: null };
+function idbOpen() {
+  if (idb.db || idb.mem) return Promise.resolve();
+  return new Promise((resolve) => {
+    const fallback = () => { if (!idb.db) idb.mem = { projects: new Map(), files: new Map() }; resolve(); };
+    let r;
+    try { r = indexedDB.open(IDB_NAME, 1); } catch { fallback(); return; }
+    r.onupgradeneeded = () => { const db = r.result; db.createObjectStore('projects', { keyPath: 'id' }); db.createObjectStore('files', { keyPath: 'key' }).createIndex('project', 'project'); };
+    r.onsuccess = () => { idb.db = r.result; idb.db.onversionchange = () => idb.db.close(); resolve(); };
+    r.onerror = fallback;
+    r.onblocked = fallback;
+  });
+}
+// one request in its own transaction; fn(store) returns the request
+function idbReq(store, mode, fn) {
+  return new Promise((resolve, reject) => {
+    const tx = idb.db.transaction(store, mode);
+    const q = fn(tx.objectStore(store));
+    tx.oncomplete = () => resolve(q && q.result);
+    tx.onerror = () => reject(tx.error || new Error('storage error'));
+    tx.onabort = () => reject(tx.error || new Error('storage error'));
+  });
+}
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const hostedStore = {
+  async projects() { return idb.mem ? [...idb.mem.projects.values()].map(clone) : idbReq('projects', 'readonly', (s) => s.getAll()); },
+  async project(id) { return idb.mem ? (idb.mem.projects.has(id) ? clone(idb.mem.projects.get(id)) : undefined) : idbReq('projects', 'readonly', (s) => s.get(id)); },
+  async putProject(pj) { if (idb.mem) idb.mem.projects.set(pj.id, clone(pj)); else await idbReq('projects', 'readwrite', (s) => s.put(clone(pj))); },
+  async fileNames(id) {
+    if (idb.mem) return [...idb.mem.files.values()].filter((f) => f.project === id).map((f) => f.name);
+    const keys = await idbReq('files', 'readonly', (s) => s.index('project').getAllKeys(IDBKeyRange.only(id)));
+    return (keys || []).map((k) => String(k).slice(id.length + 1));
+  },
+  async file(id, name) { const k = `${id}/${name}`; return idb.mem ? idb.mem.files.get(k) : idbReq('files', 'readonly', (s) => s.get(k)); },
+  async putFile(id, name, text) {
+    const rec = { key: `${id}/${name}`, project: id, name, text, size: text.length, mtime: Date.now() };
+    if (idb.mem) idb.mem.files.set(rec.key, rec); else await idbReq('files', 'readwrite', (s) => s.put(rec));
+  },
+  async remove(id) {
+    for (const name of await this.fileNames(id)) {
+      if (idb.mem) idb.mem.files.delete(`${id}/${name}`); else await idbReq('files', 'readwrite', (s) => s.delete(`${id}/${name}`));
+    }
+    if (idb.mem) idb.mem.projects.delete(id); else await idbReq('projects', 'readwrite', (s) => s.delete(id));
+  },
+};
+// project ids as serve.mjs makes them
+function slugId(s) {
+  const map = { ç: 'c', ğ: 'g', ı: 'i', İ: 'i', ö: 'o', ş: 's', ü: 'u', Ç: 'c', Ğ: 'g', Ö: 'o', Ş: 's', Ü: 'u' };
+  const t0 = String(s || '').replace(/[çğıİöşüÇĞÖŞÜ]/g, (c) => map[c]).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  return t0.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '') || 'project';
+}
+// The web version's /api: the paths and answers of serve.mjs, served from the browser store (no jobs, no runs)
+async function localApi(path, opts = {}) {
+  await idbOpen();
+  const method = String(opts.method || 'GET').toUpperCase();
+  const body = opts.json !== undefined ? opts.json : opts.body;
+  const seg = path.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
+  const [a, id, c, name] = seg;
+  if (a === 'health') return { engines: {}, offline: true, hosted: true };
+  if (a === 'jobs' && seg.length === 1) return [];
+  if (a === 'projects') {
+    if (seg.length === 1) {
+      if (method === 'POST') {
+        const nm = String((body && body.name) ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'Untitled project';
+        const taken = new Set((await hostedStore.projects()).map((p) => p.id));
+        const base = slugId(nm);
+        let pid = base;
+        for (let n = 2; taken.has(pid); n++) pid = `${base}-${n}`;
+        const now = new Date().toISOString();
+        const pj = { id: pid, name: nm, created: now, updated: now, data: { file: 'data.csv', name: null, missingCodes: ['-999'] }, vars: {}, design: { engine: 'mplus', estimator: 'ML' }, runs: {} };
+        await hostedStore.putProject(pj);
+        return pj;
+      }
+      return (await hostedStore.projects()).map((p) => ({ id: p.id, name: typeof p.name === 'string' && p.name ? p.name : p.id, updated: p.updated || p.created || null }))
+        .sort((x, y) => String(y.updated || '').localeCompare(String(x.updated || '')));
+    }
+    if (seg.length === 2) {
+      if (method === 'PUT') {
+        const cur = await hostedStore.project(id);
+        const now = new Date().toISOString();
+        await hostedStore.putProject({ ...body, id, created: (cur && cur.created) || body.created || now, updated: now });
+        return { ok: true, updated: now };
+      }
+      if (method === 'DELETE') { await hostedStore.remove(id); return { ok: true }; }
+      const pj = await hostedStore.project(id);
+      if (!pj) throw new Error(t(`Project not found: ${id}`, `Proje bulunamadı: ${id}`));
+      return pj;
+    }
+    if (c === 'files' && seg.length === 3) return (await hostedStore.fileNames(id)).map((n) => ({ name: n }));
+    if (c === 'files' && seg.length === 4) {
+      if (method === 'PUT') { const txt = String(body ?? ''); await hostedStore.putFile(id, name, txt); return { ok: true, name, size: txt.length }; }
+      const f = await hostedStore.file(id, name);
+      if (!f) throw new Error(t(`File not found: ${name}`, `Dosya bulunamadı: ${name}`));
+      return f.text;
+    }
+    if (c === 'run') throw new Error(t('The web version does not run Mplus: download the inputs, run them in Mplus and upload the outputs (Run step).', 'Web sürümü Mplus çalıştırmaz: girdileri indirin, Mplus’ta çalıştırın ve çıktıları yükleyin (Çalıştır adımı).'));
+  }
+  throw new Error(`Unknown API endpoint: ${method} /api/${seg.join('/')}`);
+}
 async function findRunner() {
   const ports = QS.get('runner') ? [Number(QS.get('runner'))] : Array.from({ length: 21 }, (_, i) => 3401 + i);
   const probe = async (p) => {
@@ -118,10 +226,7 @@ async function findRunner() {
   try { return await Promise.any(ports.map(probe)); } catch { return null; }
 }
 async function api(path, opts = {}) {
-  if (HOSTED) { // the web version has no server: the work is done in the app on this computer
-    connectDlg();
-    throw new Error(t('Projects are kept and run by the app on your computer; open it to continue.', 'Projeler bilgisayarınızdaki uygulamada saklanır ve çalıştırılır; devam etmek için onu açın.'));
-  }
+  if (HOSTED) return localApi(path, opts); // the web version: the projects live in this browser, nothing runs
   const o = { ...opts };
   if (o.json !== undefined) { o.body = JSON.stringify(o.json); o.headers = { 'Content-Type': 'application/json' }; delete o.json; }
   const res = await fetch('/api' + path, o);
@@ -136,12 +241,19 @@ async function api(path, opts = {}) {
 const fileUrl = (name) => `/api/projects/${encodeURIComponent(S.P.id)}/files/${encodeURIComponent(name)}`;
 // Where a project's files are on this computer (PROJECTS_DIR, or projects\ next to the server or the .exe)
 function projectPath(id) {
+  if (HOSTED) return t('kept in this browser', 'bu tarayıcıda saklanır');
   const dir = S.health && S.health.projectsDir;
   if (!dir) return `projects/${id}/`;
   const sep = dir.includes('\\') ? '\\' : '/';
   return `${dir.replace(/[\\/]+$/, '')}${sep}${id}${sep}`;
 }
 async function getText(name) {
+  if (HOSTED) {
+    await idbOpen();
+    const f = await hostedStore.file(S.P.id, name);
+    if (!f) throw new Error(t(`Could not read ${name}.`, `${name} okunamadı.`));
+    return f.text;
+  }
   const res = await fetch(fileUrl(name));
   if (!res.ok) throw new Error(t(`Could not read ${name}.`, `${name} okunamadı.`));
   return res.text();
@@ -262,6 +374,7 @@ function flushSave() {
   clearTimeout(saveTimer);
   const pj = savePending;
   savePending = null;
+  if (HOSTED) { putProject(pj); return; } // the browser store: a transaction begun before unload completes
   const body = JSON.stringify(pj);
   try {
     fetch(`/api/projects/${encodeURIComponent(pj.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 60000 }).catch(() => {});
@@ -561,7 +674,7 @@ function runInfo() {
 function engineAvail() {
   if (!S.health) return { ok: false, checking: true };
   const h = S.health.engines && S.health.engines.mplus;
-  if (HOSTED) return { ok: false, notRunning: true, error: t('This is the web version. The analyses run in the app on your computer: download DynamicFitMplus.exe and start it, or open it if it is already running.', 'Bu web sürümüdür. Analizler bilgisayarınızdaki uygulamada çalışır: DynamicFitMplus.exe dosyasını indirip başlatın ya da çalışıyorsa açın.') };
+  if (HOSTED) return { ok: false, notRunning: true, error: t('This is the web version: you run the Mplus inputs yourself (Run step), or the Windows app runs them for you. Click to download the app or open it when it is running.', 'Bu web sürümüdür: Mplus girdilerini siz çalıştırırsınız (Çalıştır adımı) ya da Windows uygulaması sizin yerinize çalıştırır. Uygulamayı indirmek ya da çalışıyorsa açmak için tıklayın.') };
   if (!h) return { ok: false, error: t('The server cannot be reached. Start the app with "node serve.mjs".', 'Sunucuya ulaşılamıyor. Uygulamayı "node serve.mjs" ile başlatın.') };
   return h;
 }
@@ -765,7 +878,7 @@ function enginePill() {
   const h = engineAvail();
   if (h.checking) return `<span class="pill" data-engine="mplus"><span class="mdot"></span>Mplus<span class="pill-label"> ${t('checking', 'denetleniyor')}</span></span>`;
   if (h.ok) return `<span class="pill" data-engine="mplus" data-tip="${esc(h.path || '')}" tabindex="0"><span class="mdot ${anyActive() ? 'run' : 'ok'}"></span>Mplus ${esc(h.version || '')}<span class="pill-label"> ${t('ready', 'hazır')}</span></span>`;
-  if (h.notRunning) return `<button class="pill" data-act="recheck" data-tip="${esc(h.error)}"><span class="mdot bad"></span>${t('Web version', 'Web sürümü')}<span class="pill-label"> · ${t('open the app', 'uygulamayı aç')}</span></button>`;
+  if (h.notRunning) return `<button class="pill" data-act="recheck" data-tip="${esc(h.error)}"><span class="mdot bad"></span>${t('Web version', 'Web sürümü')}<span class="pill-label"> · ${t('Windows app', 'Windows uygulaması')}</span></button>`;
   return `<span class="pill" data-engine="mplus" data-tip="${esc(h.error || missingMsg())}" tabindex="0"><span class="mdot bad"></span>Mplus<span class="pill-label"> ${t('not found', 'bulunamadı')}</span></span>`;
 }
 function renderTop() {
@@ -858,7 +971,7 @@ function ctrlData() {
 }
 function ctrlChooseSource(eyebrow) {
   return ctrlWrap(ctrlHead(eyebrow, t('Bring in your model', 'Modelinizi getirin'), t('Dynamic fit index cutoffs are simulated from the standardized solution of your own model. Start from raw data, from the output of a model you fitted in Mplus, or from estimates reported in a paper.', 'Dinamik uyum kesme değerleri kendi modelinizin standartlaştırılmış çözümünden simüle edilir. Ham veriden, Mplus’ta kestirdiğiniz bir modelin çıktısından ya da bir makalede raporlanan kestirimlerden başlayın.')),
-    `<div class="drop" id="drop" data-drop="data">
+    `${HOSTED ? callout('info', t('Web version: your files stay in this browser and nothing is sent anywhere. In the Run step you download the Mplus inputs, run them in Mplus and upload the outputs; the Windows app does that by itself.', 'Web sürümü: dosyalarınız bu tarayıcıda kalır, hiçbir şey bir yere gönderilmez. Çalıştır adımında Mplus girdilerini indirir, Mplus’ta çalıştırır ve çıktıları yüklersiniz; Windows uygulaması bunu kendisi yapar.')) : ''}<div class="drop" id="drop" data-drop="data">
       <div class="drop-ic" style="margin:2px auto 14px;width:52px;height:52px;border-radius:15px">${icon('table', 24)}</div>
       <h2 class="h2 mb-1">${t('Raw data (CSV)', 'Ham veri (CSV)')}</h2>
       <p class="muted small mb-4">${t('Drop a CSV file here or choose it. You assign the items to factors; the CFA runs in Mplus first, then the simulation. The data stay on this computer.', 'CSV dosyasını buraya bırakın ya da seçin. Maddeleri faktörlere siz atarsınız; önce CFA, sonra simülasyon Mplus’ta çalışır. Veri bu bilgisayarda kalır.')}</p>
@@ -1084,7 +1197,7 @@ function ctrlSettings() {
   } else prev = callout('warn', esc(d.planErr || d.specErr || ''));
   const prevCard = `<section class="card">${cardHead(t('Misspecification levels', 'Yanlış belirtme düzeyleri'), t('Amber = what the simulation adds to the population model but leaves out of the analysis model.', 'Kehribar = simülasyonun popülasyon modeline ekleyip analiz modelinden çıkardığı.'))}<div class="card-b">${prev}<div class="mt-3">${paperLink('analysis')}</div></div></section>`;
   return ctrlWrap(ctrlHead(eyebrow, t('Simulation settings', 'Simülasyon ayarları'), t('The defaults follow the dynamic package. Your choices update the Analysis paragraph of the paper.', 'Varsayılanlar dynamic paketini izler. Seçimleriniz makalenin Analiz paragrafını günceller.')),
-    `${!av.ok && !av.checking ? callout('warn', missingHtml(av)) : ''}${estCard}${genCard}${repCard}${polCard}${signCard}${prevCard}`,
+    `${!av.ok && !av.checking && !HOSTED ? callout('warn', missingHtml(av)) : ''}${estCard}${genCard}${repCard}${polCard}${signCard}${prevCard}`,
     stepBar({ back, info: errs.length ? errs[0] : `${mode === 'csv' ? `CFA ${est} · ` : ''}${dt === 'continuous' || !ordinal ? t('normal data', 'normal veri') : t('ordinal data', 'sıralı veri')} · ${reps} ${t('replications', 'tekrar')}`, tone: errs.length ? 'warn' : 'ok', actions: nextBtn(t('Run', 'Çalıştır'), `data-act="go" data-route="run" ${errs.length ? 'disabled' : ''}`) }));
 }
 
@@ -1158,6 +1271,7 @@ function ctrlRun() {
     ? t('Run fits your CFA in Mplus, then simulates the correct model and each misspecification level. The cutoffs go into the paper.', 'Çalıştır, önce CFA’nızı Mplus’ta kestirir, ardından doğru modeli ve her yanlış belirtme düzeyini simüle eder. Kesme değerleri makaleye işlenir.')
     : t('Run simulates the correct model and each misspecification level in Mplus on this computer. The cutoffs go into the paper.', 'Çalıştır, doğru modeli ve her yanlış belirtme düzeyini bu bilgisayardaki Mplus’ta simüle eder. Kesme değerleri makaleye işlenir.'));
   if (errs.length) return ctrlWrap(head, callout('warn', `${esc(errs[0])}<div class="mt-2"><button class="btn btn-sm" data-act="go" data-route="roles">${t('Go to the structure', 'Yapıya git')}</button></div>`), stepBar({ back, info: errs[0], tone: 'warn', actions: nextBtn(t('Report', 'Rapor'), 'data-act="go" data-route="report"', '') }));
+  if (HOSTED) return ctrlRunHosted(eyebrow, back); // the web version: the user runs the inputs in Mplus
   const av = engineAvail();
   const info = runInfo();
   const d = derive();
@@ -1207,6 +1321,216 @@ function ctrlRun() {
   else if ((info.rec && info.rec.status === 'cancelled') || (P.runs.cfa && P.runs.cfa.status === 'cancelled' && !info.rec)) { sbInfo = t('The last run was cancelled', 'Son çalıştırma iptal edildi'); tone = 'idle'; }
   else { sbInfo = t('Not run yet', 'Henüz çalıştırılmadı'); tone = 'idle'; }
   return ctrlWrap(head, body, stepBar({ back, info: sbInfo, tone, actions: nextBtn(t('Report', 'Rapor'), `data-act="go" data-route="report" ${info.ok && info.fresh && !info.active ? '' : 'disabled'}`) }));
+}
+
+// ---------------------------------------------------------------- 4b · Run in the web version
+// The web version has no server and runs nothing: it writes the Mplus inputs (a zip with a batch file that runs
+// them), the user runs them in Mplus on this computer and brings the .out and _res.dat files back; reading,
+// cutoffs and the paper are the same code as in the app. Outputs count only for the inputs they were made from:
+// every uploaded .out must echo exactly the input of the current study (D.sameInput), and a results file must
+// hold one record per completed replication of its output.
+const MANUAL_BAT = 'run_all.bat', MANUAL_README = 'README.txt';
+// The outputs brought back for the current inputs, by the signature of the study (a changed model or setting
+// starts a new ledger, so the outputs of older inputs never count); write = true keeps it in the project
+function ledger(kind, write = false) {
+  const P = S.P;
+  const sig = kind === 'cfa' ? cfaSig() : dfiSig();
+  const all = P.runs.manual || {};
+  if (all[kind] && all[kind].sig === sig) return all[kind];
+  const L = { sig, files: {} };
+  if (write) { P.runs.manual = all; all[kind] = L; }
+  return L;
+}
+const cfaReady = () => { const P = S.P; return !!(P && P.source.mode === 'csv' && S.cfaRes && S.cfaRes.ok && P.runs.cfa && P.runs.cfa.sig === cfaSig()); };
+// which inputs are handed out now: the CFA of raw data (until its output is back), then the simulation
+function manualStage() {
+  const P = S.P;
+  if (!P || !hasSource() || structErrors().length) return null;
+  if (P.source.mode === 'csv' && !cfaReady()) return 'cfa';
+  return derive().plan ? 'dfi' : null;
+}
+function manualFiles(stage) {
+  if (stage === 'cfa') { const b = buildCfa(); return [{ name: b.input.name, data: b.input.text }, { name: b.data.name, data: b.data.text() }]; }
+  if (stage === 'dfi') return dfiFiles().map((f) => ({ name: f.name, data: f.text }));
+  return [];
+}
+// run_all.bat: Mplus on every input, one after the other (MPLUS_PATH, else the usual folder); "/q" skips the pause
+function batText(inputs) {
+  const L = ['@echo off', 'rem Dynamic Fit for Mplus: runs Mplus on every input of this folder, one after the other.',
+    'rem Mplus is taken from MPLUS_PATH, else from C:\\Program Files\\Mplus. "run_all.bat /q" does not wait at the end.',
+    'cd /d "%~dp0"', 'set "MPLUS=%MPLUS_PATH%"',
+    'if not defined MPLUS if exist "C:\\Program Files\\Mplus\\Mplus.exe" set "MPLUS=C:\\Program Files\\Mplus\\Mplus.exe"',
+    'if not defined MPLUS if exist "C:\\Program Files (x86)\\Mplus\\Mplus.exe" set "MPLUS=C:\\Program Files (x86)\\Mplus\\Mplus.exe"',
+    'if not defined MPLUS set "MPLUS=Mplus.exe"'];
+  inputs.forEach((f) => L.push(`echo Running ${f} ...`, `"%MPLUS%" "${f}" "${f.replace(/\.inp$/i, '.out')}"`));
+  L.push('echo.', 'echo Done. In Dynamic Fit for Mplus (Run step), upload the .out and _res.dat files of this folder.', 'if /i not "%~1"=="/q" pause');
+  return L.join('\r\n') + '\r\n';
+}
+function readmeText(stage, inputs) {
+  const what = stage === 'cfa' ? 'the CFA of your data' : 'the dynamic fit simulation';
+  const back = stage === 'cfa' ? 'cfa.out' : 'every .out and _res.dat file of this folder, all at once';
+  return [`Dynamic Fit for Mplus - Mplus inputs of "${S.P.name}" (${what})`, `Written by the web version on ${new Date().toISOString().slice(0, 10)}.`, '',
+    '1. Keep these files together in one folder whose path has only plain letters and digits: Mplus cannot',
+    '   read folders with Turkish or accented letters.',
+    '2. Double-click run_all.bat. It runs Mplus on every input, one after the other, and Mplus writes',
+    '   <name>.out (and, for the simulation, <name>_res.dat) next to each input. Mplus is taken from',
+    '   C:\\Program Files\\Mplus; set the MPLUS_PATH environment variable if it is elsewhere. Or open each',
+    '   .inp file in the Mplus editor and click Run.',
+    `3. Back in Dynamic Fit for Mplus, Run step: click "Upload the outputs" and select ${back}.`,
+    '   The cutoffs and the paper are computed in the browser; nothing is sent anywhere.', '',
+    'Inputs:', ...inputs.map((f) => `  ${f}`), ''].join('\r\n');
+}
+function downloadInputs() {
+  const stage = manualStage();
+  const files = manualFiles(stage);
+  if (!stage || !files.length) { toast(t('There is nothing to run yet.', 'Henüz çalıştırılacak bir şey yok.'), 'err'); return; }
+  const inputs = files.filter((f) => /\.inp$/i.test(f.name)).map((f) => f.name);
+  const zip = zipStore([...files, { name: MANUAL_BAT, data: batText(inputs) }, { name: MANUAL_README, data: readmeText(stage, inputs) }]);
+  download(`${S.P.id}_${stage}_inputs.zip`, new Blob([zip], { type: 'application/zip' }));
+  ledger(stage, true).handed = new Date().toISOString();
+  save();
+  render();
+}
+// The Mplus version that made the runs (the paper names it)
+function runsVersion() {
+  for (const r of Object.values(S.runs || {})) { const m = r && r.out ? String(r.out).match(/Mplus VERSION ([\d.]+)/) : null; if (m) return m[1]; }
+  return null;
+}
+// Files chosen or dropped by the user: the outputs of the current inputs are kept (under their expected names),
+// others are refused or skipped; when every output of the simulation is in, the study is summarized
+async function acceptOutputs(list) {
+  const P = S.P;
+  const stage = manualStage();
+  if (!P || !stage) { toast(t('Load a model and complete its structure first.', 'Önce bir model yükleyip yapısını tamamlayın.'), 'err'); return; }
+  const plan = stage === 'dfi' ? derive().plan : null;
+  const want = new Map();
+  if (stage === 'cfa') want.set(CFA.out, { kind: 'cfa' });
+  if (plan) for (const f of plan.files) { want.set(f.out.toLowerCase(), { kind: 'out', f }); want.set(f.res.toLowerCase(), { kind: 'res', f }); }
+  const taken = [], ignored = [], refused = [];
+  for (const file of list) {
+    const e = want.get(String(file.name).toLowerCase());
+    if (!e) { ignored.push(file.name); continue; }
+    const text = new TextDecoder('latin1').decode(await file.arrayBuffer());
+    if (S.P !== P) return;
+    if (e.kind === 'cfa') {
+      if (!D.sameInput(text, buildCfa().input.text)) { refused.push(file.name); continue; }
+      const handed = ledger('cfa').handed;
+      await putFile(CFA.out, text);
+      S.outCache.delete(CFA.out);
+      const now = new Date().toISOString();
+      P.runs = { ...P.runs, cfa: { sig: cfaSig(), started: handed || now, at: now, status: 'done', manual: true }, dfi: null };
+      S.cfaRes = null; S.derived = null; S.runs = {}; S.dfi = null;
+      await loadCfa();
+      if (S.P !== P) return;
+      if (!(S.cfaRes && S.cfaRes.ok)) { P.runs.cfa.status = 'error'; P.runs.cfa.error = S.cfaRes ? S.cfaRes.error : t('cfa.out could not be read.', 'cfa.out okunamadı.'); }
+      taken.push(file.name);
+      continue;
+    }
+    const L = ledger('dfi', true);
+    const rec = (L.files[e.f.name] = L.files[e.f.name] || {});
+    if (e.kind === 'out') {
+      if (!D.sameInput(text, e.f.text)) { refused.push(file.name); continue; }
+      await putFile(e.f.out, text);
+      S.outCache.delete(e.f.out);
+      const m = D.readMcRun(text, '');
+      Object.assign(rec, { out: true, requested: m.requested, completed: m.completed, improper: m.improper.size, error: fin(m.completed) ? null : m.error || t('The output is incomplete.', 'Çıktı eksik.') });
+    } else { await putFile(e.f.res, text); rec.res = true; }
+    delete rec.resBad;
+    taken.push(file.name);
+  }
+  let complete = false;
+  if (plan) {
+    const L = ledger('dfi', true);
+    for (const f of plan.files) { // a results file belongs to its output when it has one record per completed replication
+      const rec = L.files[f.name];
+      if (!rec || !rec.out || !rec.res || rec.error || rec.resBad !== undefined) continue;
+      try { const m = D.readMcRun(await getText(f.out), await getText(f.res)); rec.resBad = !(m.ok && m.rows.length === m.completed); } catch { rec.resBad = true; }
+    }
+    complete = plan.files.every((f) => { const r = L.files[f.name]; return r && r.out && r.res && !r.error && !r.resBad; });
+    if (complete) {
+      const now = new Date().toISOString();
+      P.runs.dfi = { sig: L.sig, started: L.handed || now, at: now, status: 'done', files: plan.files.map((f) => f.name), manual: true };
+      S.runs = {}; S.dfi = null;
+      await loadDfi();
+      if (S.P !== P) return;
+    }
+  }
+  save();
+  render();
+  if (taken.length) toast(t(`${taken.length} file${taken.length === 1 ? '' : 's'} taken in: ${taken.join(', ')}.`, `${taken.length} dosya alındı: ${taken.join(', ')}.`));
+  if (refused.length) toast(t(`Not taken in: ${refused.join(', ')} — not the output of the input in this study (the model or a setting changed, or the file was edited). Download the inputs again and rerun Mplus.`, `Alınmadı: ${refused.join(', ')} — bu çalışmadaki girdinin çıktısı değil (model ya da bir ayar değişti ya da dosya düzenlendi). Girdileri yeniden indirip Mplus’ı yeniden çalıştırın.`), 'err');
+  if (ignored.length) toast(t(`Not needed here: ${ignored.slice(0, 5).join(', ')}${ignored.length > 5 ? ', …' : ''}.`, `Burada gerekmiyor: ${ignored.slice(0, 5).join(', ')}${ignored.length > 5 ? ', …' : ''}.`));
+  if (complete) toast(S.dfi && S.dfi.ok ? t('All outputs are in. The cutoffs are in the paper.', 'Bütün çıktılar geldi. Kesme değerleri makalede.') : (S.dfi && S.dfi.error) || t('The outputs could not be summarized.', 'Çıktılar özetlenemedi.'), S.dfi && S.dfi.ok ? '' : 'err');
+}
+function ctrlRunHosted(eyebrow, back) {
+  const P = S.P;
+  const mode = P.source.mode;
+  const stage = manualStage();
+  const d = derive();
+  const info = runInfo();
+  const outs = new Set(sheetFiles());
+  const open = (file, jump = false) => `<button class="link mono" data-act="openSheet" data-file="${esc(file)}"${jump ? ' data-jump="err"' : ''}>${esc(file)}</button>`;
+  const st = (k, w) => `<span class="st ${k}"><i></i>${w}</span>`;
+  const WAIT = st('queued', t('Waiting', 'Bekliyor')), DONE = st('done', t('Uploaded', 'Yüklendi')), ERR = st('error', t('Error', 'Hata'));
+  const dlBtn = (label, primary) => `<button class="btn btn-lg btn-block ${primary ? 'btn-primary' : ''}" data-act="dlInputs">${icon('download', 18)}<span class="btn-t">${label}</span></button>`;
+  const upBtn = (label, primary) => `<button class="btn btn-lg btn-block ${primary ? 'btn-primary' : ''}" data-act="pickOuts">${icon('upload', 18)}<span class="btn-t">${label}</span></button>`;
+  const dropZone = `<div class="drop mt-3" data-drop="outs" style="padding:16px"><p class="small muted" style="margin:0">${t('… or drop the output files here', '… ya da çıktı dosyalarını buraya bırakın')}</p></div>`;
+  const thead = `<thead><tr><th>${t('Mplus input', 'Mplus girdisi')}</th><th>${t('Output', 'Çıktı')}</th><th>${t('Status', 'Durum')}</th></tr></thead>`;
+  const head = ctrlHead(eyebrow, t('Run Mplus yourself', 'Mplus’ı kendiniz çalıştırın'), t('The web version writes the Mplus inputs; you run them in Mplus on your computer and bring the outputs back here. The files stay in this browser, and nothing is sent anywhere. The Windows app does these steps by itself.', 'Web sürümü Mplus girdilerini yazar; siz onları bilgisayarınızdaki Mplus’ta çalıştırıp çıktıları buraya geri getirirsiniz. Dosyalar bu tarayıcıda kalır, hiçbir şey bir yere gönderilmez. Windows uygulaması bu adımları kendisi yapar.'));
+  let cards = '', sbInfo = '', tone = 'idle', nOut = 0;
+  if (mode === 'csv') {
+    const c = P.runs.cfa, cur = !!(c && c.sig === cfaSig());
+    const have = cur && outs.has(CFA.out);
+    const bad = cur && c.status === 'error';
+    const rows = `<tr><td>${open(CFA.input)}<div class="hint" style="margin-top:0">${t('CFA of your data', 'Verinizin CFA’sı')}</div></td><td>${have ? open(CFA.out, bad) : `<span class="muted mono">${CFA.out}</span>`}</td><td>${bad ? ERR : have ? DONE : WAIT}</td></tr>
+      <tr><td>${open(CFA.data)}<div class="hint" style="margin-top:0">${t('the data, as Mplus reads them', 'veri, Mplus’ın okuduğu biçimde')}</div></td><td></td><td></td></tr>`;
+    const err = bad ? callout('err', `<b>${t('The CFA output cannot be used', 'CFA çıktısı kullanılamaz')}</b><br>${esc(c.error || '')}`) : '';
+    const acts = stage === 'cfa' ? `<div class="mt-4 grid gap-2">${dlBtn(t('Download cfa.inp and data.dat (zip)', 'cfa.inp ve data.dat indir (zip)'), !have && !ledger('cfa').handed)}${upBtn(t('Upload cfa.out', 'cfa.out yükle'), !have && !!ledger('cfa').handed)}</div>${dropZone}` : '';
+    cards += `<section class="card">${cardHead(t('1 · CFA of your data', '1 · Verinizin CFA’sı'), stage === 'cfa' ? t('Run cfa.inp in Mplus and bring cfa.out back. The simulation inputs are then written from its standardized solution.', 'cfa.inp dosyasını Mplus’ta çalıştırıp cfa.out dosyasını geri getirin. Simülasyon girdileri sonra onun standartlaştırılmış çözümünden yazılır.') : t('Done. The simulation inputs below were written from cfa.out.', 'Tamam. Aşağıdaki simülasyon girdileri cfa.out dosyasından yazıldı.'))}<div class="card-b">${err}<div class="table-wrap"><table class="dtab">${thead}<tbody>${rows}</tbody></table></div>${acts}</div></section>`;
+    if (stage === 'cfa') { sbInfo = bad ? t('The CFA output cannot be used', 'CFA çıktısı kullanılamaz') : t('Run cfa.inp in Mplus, then upload cfa.out', 'cfa.inp dosyasını Mplus’ta çalıştırın, sonra cfa.out yükleyin'); tone = bad ? 'warn' : 'idle'; }
+  }
+  if (stage === 'dfi' && d.plan) {
+    const L = ledger('dfi');
+    const files = d.plan.files, n = files.length;
+    let nRes = 0, nBad = 0;
+    const rows = files.map((f) => {
+      const r = L.files[f.name] || {};
+      const bad = !!(r.error || r.resBad);
+      if (r.out) nOut++;
+      if (r.res) nRes++;
+      if (bad) nBad++;
+      const detail = r.error ? esc(r.error)
+        : r.resBad ? t(`${f.res} does not belong to this output (one record per completed replication expected)`, `${f.res} bu çıktıya ait değil (tamamlanan her tekrar için bir kayıt beklenir)`)
+          : r.out ? `${nfL(r.completed)}/${nfL(r.requested)} ${t('completed', 'tamamlandı')}${r.improper ? ` · ${nfL(r.improper)} ${t('improper', 'uygunsuz')}` : ''}${r.res ? '' : ` · ${t('missing', 'eksik')}: ${f.res}`}`
+            : r.res ? `${f.res} ${t('received', 'alındı')} · ${t('missing', 'eksik')}: ${f.out}` : `${f.out} · ${f.res}`;
+      const status = bad ? ERR : r.out && r.res ? DONE : WAIT;
+      return `<tr><td>${open(f.name)}<div class="hint" style="margin-top:0">${esc(lvLabel(f))}</div></td><td>${r.out && outs.has(f.out) ? open(f.out, !!r.error) : `<span class="muted mono">${esc(f.out)}</span>`}<div class="hint" style="margin-top:0">${detail}</div></td><td>${status}</td></tr>`;
+    }).join('');
+    const complete = !!(info.rec && info.fresh && info.rec.status === 'done');
+    let status = '';
+    if (complete && info.ok) status = callout('ok', `${t('The cutoffs are in the paper.', 'Kesme değerleri makalede.')}<div class="mt-1 flex flex-wrap gap-x-3">${paperLink('results', t('Results', 'Bulgular'))}${paperLink('t-fit', t('Table 2', 'Tablo 2'))}${paperLink('f-dist', t('Figure 1', 'Şekil 1'))}</div>`);
+    else if (complete && info.err) status = callout('err', `<b>${t('The outputs could not be summarized', 'Çıktılar özetlenemedi')}</b><br>${esc(info.err)}`);
+    else if (info.rec && !info.fresh && !nOut && !nRes) status = callout('warn', t('The model or the settings changed after the last run. Download the new inputs, run them in Mplus and upload the outputs again.', 'Son çalıştırmadan sonra model ya da ayarlar değişti. Yeni girdileri indirin, Mplus’ta çalıştırın ve çıktıları yeniden yükleyin.'));
+    else if (nBad) status = callout('err', t('Some files could not be used; see the rows marked Error.', 'Bazı dosyalar kullanılamadı; Hata işaretli satırlara bakın.'));
+    cards += `<section class="card">${cardHead(mode === 'csv' ? t('2 · Simulation', '2 · Simülasyon') : t('Simulation', 'Simülasyon'), t(`${n} Mplus inputs: the correct model and every misspecification level, each with the hypothesized and the baseline model on the same data. Mplus writes a .out and a _res.dat file for each.`, `${n} Mplus girdisi: doğru model ve her yanlış belirtme düzeyi; her biri aynı veride hipotez ve temel modelle. Mplus her biri için bir .out ve bir _res.dat dosyası yazar.`))}
+      <div class="card-b">${status}<div class="table-wrap"><table class="dtab">${thead}<tbody>${rows}</tbody></table></div>
+      <p class="small mt-3">${t(`<b>${nOut}</b> of ${n} outputs and <b>${nRes}</b> of ${n} results files uploaded.`, `${n} çıktının <b>${nOut}</b> tanesi ve ${n} sonuç dosyasının <b>${nRes}</b> tanesi yüklendi.`)}</p>
+      <div class="mt-3 grid gap-2">${dlBtn(t(`Download the ${n} Mplus inputs (zip)`, `${n} Mplus girdisini indir (zip)`), !nOut && !nRes && !complete && !L.handed)}${upBtn(t('Upload the outputs (.out and _res.dat)', 'Çıktıları yükle (.out ve _res.dat)'), !complete && !!(nOut || nRes || L.handed))}</div>${dropZone}</div></section>`;
+    sbInfo = complete && info.ok ? t('The cutoffs are in the paper', 'Kesme değerleri makalede') : complete ? t('The outputs could not be summarized', 'Çıktılar özetlenemedi') : nOut || nRes ? t(`${nOut}/${n} outputs uploaded`, `${nOut}/${n} çıktı yüklendi`) : t('Download the inputs and run them in Mplus', 'Girdileri indirip Mplus’ta çalıştırın');
+    tone = complete && info.ok ? 'ok' : complete || nBad ? 'warn' : nOut || nRes ? 'wait' : 'idle';
+  } else if (mode === 'csv' && stage === 'cfa') {
+    cards += `<section class="card">${cardHead(t('2 · Simulation', '2 · Simülasyon'), t('Written after cfa.out is back: the misspecifications are chosen from the standardized solution.', 'cfa.out geldikten sonra yazılır: yanlış belirtmeler standartlaştırılmış çözümden seçilir.'))}<div class="card-b"></div></section>`;
+  }
+  const li = (k, s) => `<li class="flex gap-3"><span class="step-n" aria-hidden="true">${k}</span><span>${s}</span></li>`;
+  const howOpen = S.ui.openDetails.howrun ?? !(nOut || (info.rec && info.fresh));
+  const how = `<details class="card" data-key="howrun"${howOpen ? ' open' : ''}><summary class="card-h" style="padding-bottom:18px"><div class="min-w-0"><h2 class="h3">${t('How to run the inputs in Mplus', 'Girdiler Mplus’ta nasıl çalıştırılır')}</h2><p class="small muted">${t('Four steps; the zip carries a batch file and the same notes.', 'Dört adım; zip içinde bir toplu iş dosyası ve aynı notlar var.')}</p></div>${icon('arrow', 16)}</summary>
+    <div class="card-b" style="padding-top:0"><ol class="grid gap-3 small">
+      ${li(1, t('Download the zip and extract it into a folder whose path has only plain letters and digits (Mplus cannot read folders with Turkish or accented letters).', 'Zip dosyasını indirip yolu yalnız düz harf ve rakamlardan oluşan bir klasöre çıkarın (Mplus, Türkçe ya da aksanlı harf içeren klasörleri okuyamaz).'))}
+      ${li(2, t('Double-click <b>run_all.bat</b>: it runs Mplus on every input, one after the other (Mplus is taken from <i>C:\\Program Files\\Mplus</i>, or from the MPLUS_PATH variable). Windows may ask once whether to run the file. Or open each .inp in the Mplus editor and click Run.', '<b>run_all.bat</b> dosyasına çift tıklayın: Mplus’ı her girdi için sırayla çalıştırır (Mplus, <i>C:\\Program Files\\Mplus</i> klasöründen ya da MPLUS_PATH değişkeninden alınır). Windows bir kez dosyanın çalıştırılıp çalıştırılmayacağını sorabilir. Ya da her .inp dosyasını Mplus düzenleyicisinde açıp Run’a tıklayın.'))}
+      ${li(3, t('Wait for Mplus to finish. It writes a .out file (and, for the simulation, a _res.dat file) next to each input.', 'Mplus’ın bitmesini bekleyin. Her girdinin yanına bir .out dosyası (simülasyon için ayrıca bir _res.dat dosyası) yazar.'))}
+      ${li(4, t('Come back here and upload those files, all at once. The page checks that each output was made from the input of this study, then computes the cutoffs and writes the paper. Your project is saved in this browser, so you can close the page in between.', 'Buraya dönüp bu dosyaların hepsini bir kerede yükleyin. Sayfa her çıktının bu çalışmanın girdisinden üretildiğini denetler, sonra kesme değerlerini hesaplayıp makaleyi yazar. Projeniz bu tarayıcıda saklanır; arada sayfayı kapatabilirsiniz.'))}
+    </ol></div></details>`;
+  return ctrlWrap(head, `${cards}${how}`, stepBar({ back, info: sbInfo, tone, actions: nextBtn(t('Report', 'Rapor'), `data-act="go" data-route="report" ${info.ok && info.fresh ? '' : 'disabled'}`) }));
 }
 
 // ---------------------------------------------------------------- 5 · Report
@@ -1310,7 +1634,7 @@ function manuscript(lang) {
   const labels = labelsFor();
   const lab = (x) => labels[String(x).toUpperCase()] || x;
   const st = d.spec ? (() => { try { return D.structure(d.spec); } catch { return null; } })() : null;
-  const version = (d.spec && d.spec.version) || (S.health && S.health.engines && S.health.engines.mplus && S.health.engines.mplus.ok ? S.health.engines.mplus.version : null);
+  const version = (d.spec && d.spec.version) || (HOSTED ? runsVersion() : null) || (S.health && S.health.engines && S.health.engines.mplus && S.health.engines.mplus.ok ? S.health.engines.mplus.version : null);
   // the structure the paper describes: from the estimates when known, else from the factor assignment
   let factors = [], second = null, catg = false, nCat = null;
   if (st) {
@@ -1844,6 +2168,8 @@ const ACT = {
   },
   run() { runAll(); },
   cancel() { cancelRun(); },
+  dlInputs() { downloadInputs(); }, // the web version: the Mplus inputs as a zip
+  pickOuts() { $('#fileOuts').click(); },
   dlReps() {
     if (!S.dfi || !S.dfi.ok) return;
     const head = ['level', 'rep', 'chisq', 'df', 'pvalue', 'rmsea', 'srmr', 'cfi', 'tli', 'chisq_base', 'df_base', 'improper'];
@@ -1910,13 +2236,29 @@ async function openProjectsDialog() {
   try { S.projects = await api('/projects'); } catch { /* keep the old list */ }
   const d = $('#dlg');
   d.onclose = null;
+  const row = (p) => `<div class="flex items-center gap-1"><button class="step" data-open-project="${esc(p.id)}" ${S.P && S.P.id === p.id ? 'aria-current="page"' : ''}><span class="step-n">${icon('folder', 14)}</span><span>${esc(p.name)}<span class="step-meta mono">${esc(projectPath(p.id))}</span></span></button>${HOSTED ? `<button class="btn btn-ghost icon-btn" data-del-project="${esc(p.id)}" aria-label="${esc(t(`Remove ${p.name} from this browser`, `${p.name} projesini bu tarayıcıdan kaldır`))}" data-tip="${t('Remove from this browser', 'Bu tarayıcıdan kaldır')}">${icon('trash', 15)}</button>` : ''}</div>`;
+  const hint = HOSTED
+    ? t('Each project is kept in this browser on this computer, and nothing is sent anywhere; clearing the browser’s site data removes them. The Windows app keeps projects as folders instead.', 'Her proje bu bilgisayardaki bu tarayıcıda saklanır; hiçbir şey bir yere gönderilmez. Tarayıcının site verilerini temizlemek projeleri siler. Windows uygulaması projeleri klasör olarak saklar.')
+    : t('Each project is a folder on this computer (the path is shown under its name); the data, the run files and the outputs are kept there.', 'Her proje bu bilgisayarda bir klasördür (yolu adının altında yazar); veri, çalıştırma dosyaları ve çıktılar orada saklanır.');
   d.innerHTML = `<div class="p-6"><div class="flex items-center justify-between mb-4"><h2 class="h2">${t('Projects', 'Projeler')}</h2><button class="btn btn-ghost icon-btn" data-dlg-close aria-label="${t('Close', 'Kapat')}">${icon('x')}</button></div>
-    <div class="grid gap-1 mb-5" style="max-height:300px;overflow:auto">${S.projects.length ? S.projects.map((p) => `<button class="step" data-open-project="${esc(p.id)}" ${S.P && S.P.id === p.id ? 'aria-current="page"' : ''}><span class="step-n">${icon('folder', 14)}</span><span>${esc(p.name)}<span class="step-meta mono">${esc(projectPath(p.id))}</span></span></button>`).join('') : `<p class="small muted">${t('No projects yet.', 'Henüz proje yok.')}</p>`}</div>
+    <div class="grid gap-1 mb-5" style="max-height:300px;overflow:auto">${S.projects.length ? S.projects.map(row).join('') : `<p class="small muted">${t('No projects yet.', 'Henüz proje yok.')}</p>`}</div>
     <form id="newProj" class="flex gap-2"><input class="input" name="name" placeholder="${t('New project name', 'Yeni proje adı')}" required aria-label="${t('New project name', 'Yeni proje adı')}"><button class="btn btn-primary">${icon('plus', 16)}${t('Create', 'Oluştur')}</button></form>
-    <p class="hint mt-3">${t('Each project is a folder on this computer (the path is shown under its name); the data, the run files and the outputs are kept there.', 'Her proje bu bilgisayarda bir klasördür (yolu adının altında yazar); veri, çalıştırma dosyaları ve çıktılar orada saklanır.')}</p></div>`;
+    <p class="hint mt-3">${hint}</p></div>`;
   d.showModal();
   d.onclick = async (e) => {
     if (e.target.closest('[data-dlg-close]') || e.target === d) { d.close(); return; }
+    const del = e.target.closest('[data-del-project]');
+    if (del) { // the web version only: the project and its files leave this browser
+      const id = del.dataset.delProject, p = S.projects.find((x) => x.id === id);
+      d.close();
+      await new Promise((r) => setTimeout(r, 0)); // the close event of this dialog must not reach the confirmation
+      if (!(await confirmDlg(t('Remove the project?', 'Proje kaldırılsın mı?'), t(`“${p ? p.name : id}” and its files are removed from this browser. Download the paper or the files first if you need them.`, `“${p ? p.name : id}” ve dosyaları bu tarayıcıdan kaldırılır. Gerekiyorsa önce makaleyi ya da dosyaları indirin.`), t('Remove', 'Kaldır'), true))) { openProjectsDialog(); return; }
+      try { await api(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(err.message, 'err'); }
+      if (S.P && S.P.id === id) { S.P = null; resetProjectState(); store.set('aa.last', ''); S.route = { page: 'data' }; }
+      render();
+      openProjectsDialog();
+      return;
+    }
     const b = e.target.closest('[data-open-project]');
     if (b) { d.close(); S.route = { page: 'data' }; try { await openProject(b.dataset.openProject); } catch (err) { toast(err.message, 'err'); } }
   };
@@ -2011,6 +2353,11 @@ function bindGlobal() {
     const buf = await f.arrayBuffer();
     loadOutText(new TextDecoder('latin1').decode(buf), f.name);
   });
+  $('#fileOuts').addEventListener('change', (e) => { // the web version: the Mplus outputs come back
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (files.length) acceptOutputs(files);
+  });
   // drag and drop (CSV, or an Mplus .out)
   document.addEventListener('dragover', (e) => { const z = e.target.closest('[data-drop]'); if (z) { e.preventDefault(); z.classList.add('over'); } });
   document.addEventListener('dragleave', (e) => { const z = e.target.closest('[data-drop]'); if (z) z.classList.remove('over'); });
@@ -2019,6 +2366,7 @@ function bindGlobal() {
     if (!z) return;
     e.preventDefault();
     z.classList.remove('over');
+    if (z.dataset.drop === 'outs') { acceptOutputs([...e.dataTransfer.files]); return; }
     const f = e.dataTransfer.files[0];
     if (!f) return;
     if (/\.out$/i.test(f.name)) loadOutText(new TextDecoder('latin1').decode(await f.arrayBuffer()), f.name);
@@ -2091,25 +2439,28 @@ function connectEvents() {
   setInterval(() => { document.querySelectorAll('[data-since]').forEach((x) => { x.textContent = clock(Date.now() - Number(x.dataset.since)); }); }, 1000);
 }
 
-// The web version: the first window offers the Windows app; once the app runs on this computer (it opens its own tab
-// when it starts), the window links to it. The web version itself keeps no projects and runs nothing.
+// The web version: the first window explains the two ways to work. The Windows app runs Mplus by itself (once it
+// runs on this computer, the window links to it; it opens its own tab when it starts); in the browser, the page
+// writes the Mplus inputs, the user runs them in Mplus and brings the outputs back (ctrlRunHosted).
 let connecting = null;
 function connectDlg() {
   if (connecting) return connecting;
   connecting = new Promise((resolve) => {
     const d = $('#dlg');
     d.onclose = null;
-    const li = (n, s) => `<li class="flex gap-3"><span class="step-n">${n}</span><span>${s}</span></li>`;
     const head = (title) => `<div class="flex items-start justify-between gap-3 mb-2"><h2 class="h2">${title}</h2><button class="btn btn-ghost icon-btn" data-dlg-close aria-label="${t('Close', 'Kapat')}">${icon('x')}</button></div>`;
-    const offer = () => `<div class="p-6">${head(t('Run Dynamic Fit for Mplus on your computer', 'Dynamic Fit for Mplus’ı bilgisayarınızda çalıştırın'))}
-      <p class="text-ink-2 small mb-4">${t('The simulations run in Mplus on your own computer, so the analyses are done in the Windows app. Your data never leave your computer.', 'Simülasyonlar kendi bilgisayarınızdaki Mplus’ta çalışır; bu yüzden analizler Windows uygulamasında yapılır. Verileriniz bilgisayarınızdan çıkmaz.')}</p>
-      <ol class="grid gap-3 small mb-5">${li(1, t('Download <b>DynamicFitMplus.exe</b> (89 MB). It needs Windows and Mplus 8.x; nothing is installed.', '<b>DynamicFitMplus.exe</b> dosyasını indirin (89 MB). Windows ve Mplus 8.x gerekir; kurulum yapılmaz.'))}${li(2, t('Start it. The file is not signed, so Windows may ask once: <i>More info → Run anyway</i>.', 'Başlatın. Dosya imzasız olduğundan Windows bir kez sorabilir: <i>Ek bilgi → Yine de çalıştır</i>.'))}${li(3, t('The app opens in a new browser tab. Your projects are saved in a <i>projects</i> folder next to the file.', 'Uygulama tarayıcıda yeni bir sekmede açılır. Projeleriniz dosyanın yanındaki <i>projects</i> klasörüne kaydedilir.'))}</ol>
-      <div class="flex flex-wrap items-center gap-2"><a class="btn btn-primary" href="${EXE_URL}" download autofocus>${icon('download', 16)}${t('Download for Windows', 'Windows için indir')}</a><button class="btn" data-dlg-retry>${icon('refresh', 16)}${t('It is running', 'Çalışıyor')}</button></div>
-      <p class="hint mt-3" id="connState" role="status">${t('Looking for the app on this computer…', 'Uygulama bu bilgisayarda aranıyor…')}</p>
-      <p class="hint mt-1">${t('You can close this window to look around; the analyses need the app. An app older than version 1.0.4 is not found from here, but its own tab works.', 'Göz atmak için bu pencereyi kapatabilirsiniz; analizler için uygulama gerekir. 1.0.4’ten eski bir uygulama buradan bulunamaz, ama kendi sekmesi çalışır.')}</p></div>`;
+    const way = (title, text, acts) => `<div class="well" style="padding:14px 16px"><h3 class="h3 mb-1">${title}</h3><p class="small text-ink-2 mb-3">${text}</p><div class="flex flex-wrap items-center gap-2">${acts}</div></div>`;
+    const browserBtn = `<button class="btn" data-dlg-close>${icon('arrow', 16)}${t('Continue in the browser', 'Tarayıcıda devam et')}</button>`;
+    const offer = () => `<div class="p-6">${head(t('Dynamic Fit for Mplus on the web', 'Web’de Dynamic Fit for Mplus'))}
+      <p class="text-ink-2 small mb-4">${t('The simulations run in Mplus on your own computer, and nothing you load here is sent anywhere. Two ways to work:', 'Simülasyonlar kendi bilgisayarınızdaki Mplus’ta çalışır; buraya yüklediğiniz hiçbir şey bir yere gönderilmez. İki yol var:')}</p>
+      <div class="grid gap-3 mb-3">
+        ${way(t('Windows app · recommended', 'Windows uygulaması · önerilen'), t('<b>DynamicFitMplus.exe</b> (89 MB) runs Mplus for you and keeps your projects in a folder next to it. Windows and Mplus 8.x; nothing is installed. The file is not signed, so Windows may ask once: <i>More info → Run anyway</i>. The app opens in a new browser tab.', '<b>DynamicFitMplus.exe</b> (89 MB) Mplus’ı sizin yerinize çalıştırır ve projelerinizi yanındaki bir klasörde saklar. Windows ve Mplus 8.x gerekir; kurulum yapılmaz. Dosya imzasız olduğundan Windows bir kez sorabilir: <i>Ek bilgi → Yine de çalıştır</i>. Uygulama tarayıcıda yeni bir sekmede açılır.'), `<a class="btn btn-primary" href="${EXE_URL}" download autofocus>${icon('download', 16)}${t('Download for Windows', 'Windows için indir')}</a><button class="btn" data-dlg-retry>${icon('refresh', 16)}${t('It is running', 'Çalışıyor')}</button>`)}
+        ${way(t('In this browser, with your own Mplus', 'Bu tarayıcıda, kendi Mplus’ınızla'), t('The page writes the Mplus inputs; you run them in Mplus (one batch file does it) and upload the outputs. The cutoffs and the paper are computed here, and your projects are kept in this browser.', 'Sayfa Mplus girdilerini yazar; siz onları Mplus’ta çalıştırır (tek bir toplu iş dosyası yeter) ve çıktıları yüklersiniz. Kesme değerleri ve makale burada hesaplanır; projeleriniz bu tarayıcıda saklanır.'), browserBtn)}
+      </div>
+      <p class="hint" id="connState" role="status">${t('Looking for the app on this computer…', 'Uygulama bu bilgisayarda aranıyor…')}</p></div>`;
     const found = (p) => `<div class="p-6">${head(t('The app is running on this computer', 'Uygulama bu bilgisayarda çalışıyor'))}
-      <p class="text-ink-2 small mb-5">${t('Dynamic Fit for Mplus is running and has its own tab. Continue there, or open it in this tab.', 'Dynamic Fit for Mplus çalışıyor ve kendi sekmesinde açık. Orada devam edin ya da bu sekmede açın.')}</p>
-      <div class="flex flex-wrap items-center gap-2"><a class="btn btn-primary" href="http://localhost:${p}/" autofocus>${icon('arrow', 16)}${t('Open the app', 'Uygulamayı aç')}</a></div>
+      <p class="text-ink-2 small mb-5">${t('Dynamic Fit for Mplus is running and has its own tab. Continue there, open it in this tab, or stay in the web version.', 'Dynamic Fit for Mplus çalışıyor ve kendi sekmesinde açık. Orada devam edin, bu sekmede açın ya da web sürümünde kalın.')}</p>
+      <div class="flex flex-wrap items-center gap-2"><a class="btn btn-primary" href="http://localhost:${p}/" autofocus>${icon('arrow', 16)}${t('Open the app', 'Uygulamayı aç')}</a>${browserBtn}</div>
       <p class="hint mt-3 mono">http://localhost:${p}/</p></div>`;
     let stop = false, timer = null;
     const done = () => { if (stop) return; stop = true; clearInterval(timer); if (d.open) d.close(); connecting = null; resolve(); };
@@ -2119,7 +2470,7 @@ function connectDlg() {
       if (p) { clearInterval(timer); d.innerHTML = found(p); return; }
       if (first) return;
       const s = $('#connState', d);
-      if (s) s.textContent = t('Not running yet; checking every few seconds.', 'Henüz çalışmıyor; birkaç saniyede bir yeniden bakılıyor.');
+      if (s) s.textContent = t('The app is not running yet; checking every few seconds.', 'Uygulama henüz çalışmıyor; birkaç saniyede bir yeniden bakılıyor.');
     };
     d.innerHTML = offer();
     d.showModal();
@@ -2149,7 +2500,19 @@ async function init() {
   initialHash = location.hash;
   routeFromHash();
   if (initialHash) history.replaceState(null, '', initialHash);
-  if (HOSTED) { S.health = { engines: {}, offline: true }; render(); connectDlg(); return; } // the web version
+  if (HOSTED) { // the web version: the projects of this browser; the first window explains the two ways to work
+    S.health = { engines: {}, offline: true, hosted: true };
+    render();
+    try {
+      S.projects = await api('/projects');
+      const last = store.get('aa.last');
+      const pick = S.projects.find((p) => p.id === last) || S.projects[0];
+      if (pick) { await openProject(pick.id); routeFromHash(initialHash); }
+    } catch (e) { toast(e.message, 'err'); }
+    render();
+    if (!S.projects.length) connectDlg();
+    return;
+  }
   render();
   api('/health').then((h) => { S.health = h; }, () => { S.health = { engines: {}, offline: true }; }).then(() => render());
   connectEvents();

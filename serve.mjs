@@ -33,7 +33,7 @@ const FILE_LIMIT = 100 * 1024 * 1024;
 const MAX_JOBS = 200;
 const TAIL_LINES = 40;
 const ALL_ENGINES = ['mplus', 'r', 'webr'];
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.1.0';
 // web pages (exact origins) that may ask whether the app is running: the published web version of the app
 const WEB_ORIGINS = new Set(String(process.env.WEB_ORIGINS ?? 'https://cahitgs.github.io').split(',').map((s) => s.trim()).filter((s) => s && s !== 'none'));
 let PORT = PREFERRED_PORT;

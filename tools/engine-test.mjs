@@ -6,7 +6,8 @@
 //   node tools/engine-test.mjs --quick         skip the 500-replication reference simulation
 // Checks:
 //   1. Pure JavaScript: misspecification rules against dynamic::multi_add_hier for the A-SAGS model of
-//      Boivin et al. (2026); quantiles (type 7) and the CFI formula; the CFA input of the sample data.
+//      Boivin et al. (2026); quantiles (type 7) and the CFI formula; the CFA input of the sample data; the zip
+//      writer and the output-to-input match of the web version.
 //   2. Mplus: the CFA of data/sample.csv (WLSMV, second order) in an ASCII folder, in a folder whose name has
 //      spaces and Turkish letters, and through the ASCII temp-copy fallback; the outputs must agree.
 //   3. Mplus: the reference DFI of the A-SAGS hand-entry example (continuous ML, 500 replications, N = 492)
@@ -24,6 +25,7 @@ import { parseTable, toMplusDat } from '../public/lib/data.js';
 import { buildCfaInp } from '../public/lib/mplus.js';
 import * as D from '../public/lib/dfi.js';
 import * as R from '../public/lib/report.js';
+import { crc32, zipStore } from '../public/lib/zip.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -110,6 +112,14 @@ const sigma = (txt) => { const s = { ...D.parseStdModel(txt), n: 301 }; const st
 const sA = sigma(HS), sB = sigma(HS.replace('.424*X2', '-.424*X2').replace('.570*X7', '-.570*X7'));
 check(sA.every((m, k) => m.every((r, i) => r.every((v, j) => Math.abs(v - sB[k][i][j]) < 1e-12))), 'reverse-coded items leave the population misfit unchanged');
 
+// the web version hands the Mplus inputs out as a zip (store method) and takes only outputs that echo those inputs
+check(crc32(new TextEncoder().encode('123456789')) === 0xCBF43926, 'CRC-32 of the zip writer');
+const zipped = zipStore([{ name: 'a.inp', data: 'TITLE: a;\n' }, { name: 'run_all.bat', data: '@echo off\r\n' }], new Date(2026, 0, 2, 3, 4, 6));
+check(zipped[0] === 0x50 && zipped[1] === 0x4b && zipped.length === 227 && zipped[zipped.length - 12] === 2, `zip archive of two files: ${zipped.length} bytes (expected 227), 2 entries in the end record`);
+const fakeOut = (inp) => `Mplus VERSION 8.3\nMUTHEN & MUTHEN\n\nINPUT INSTRUCTIONS\n\n${inp.replace(/\n$/, '').split('\n').map((l) => (l ? '  ' + l : '')).join('\n')}\n\n\n\nINPUT READING TERMINATED NORMALLY\n`;
+const inpA = planA.files[0].text;
+check(D.sameInput(fakeOut(inpA), inpA) && !D.sameInput(fakeOut(inpA), planA.files[1].text) && D.echoedInput('no echo here') === null, 'an output is matched to the input it echoes, and only to that one');
+
 const csvText = await fs.readFile(path.join(ROOT, 'data', 'sample.csv'), 'utf8');
 const table = parseTable(csvText);
 const items = table.columns.filter((c) => c !== 'ID');
@@ -156,6 +166,7 @@ for (const f of FOLDERS) {
   if (f.asciiTemp && !r.asciiTemp) { fail(`${f.label}: the ASCII temp copy was not used`); continue; }
   pass(`${pad(f.label, 42)} ${(r.ms / 1000).toFixed(2)} s · N = ${res.n} · CFI ${D.f3(res.fit.cfi)} · RMSEA ${D.f3(res.fit.rmsea)} · SRMR ${D.f3(res.fit.srmr)}`);
   cfaKeys.push(JSON.stringify([res.by, res.fit]));
+  if (!cfa) check(D.sameInput(r.text, cfaText) && !D.sameInput(r.text, cfaText.replace('SAMPSTAT STDYX', 'STDYX')), 'the Mplus output echoes its input exactly (the check of the web version)');
   if (!cfa) cfa = res;
 }
 if (cfaKeys.length > 1) check(cfaKeys.every((k) => k === cfaKeys[0]), `identical CFA results in all ${cfaKeys.length} folders`);

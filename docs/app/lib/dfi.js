@@ -874,3 +874,32 @@ export function interpret(emp, summary, rule = summary && summary.rule ? summary
     return { idx, value: e, beyond, top, cut, any: cut.some(fin) };
   });
 }
+
+// ---------------------------------------------------------------- the input an output was made from
+/**
+ * The input that an Mplus output echoes under INPUT INSTRUCTIONS (Mplus indents every line by two spaces), without
+ * the indent and without trailing spaces or blank lines; null when the output has no echo.
+ */
+export function echoedInput(outText) {
+  const lines = String(outText ?? '').replace(/\r/g, '').split('\n');
+  const s = lines.findIndex((l) => /^INPUT INSTRUCTIONS\s*$/.test(l));
+  if (s < 0) return null;
+  const out = [];
+  for (let j = s + 1; j < lines.length; j++) {
+    const l = lines[j];
+    if (/^INPUT READING TERMINATED|^\*\*\* (WARNING|ERROR)|^\s*\d+ (WARNING|ERROR)\(S\) FOUND/.test(l)) break;
+    out.push(l.replace(/^ {2}/, '').replace(/\s+$/, ''));
+  }
+  while (out.length && !out[0]) out.shift();
+  while (out.length && !out[out.length - 1]) out.pop();
+  return out.join('\n');
+}
+/** Was this output produced from this input? (its echoed input equals the input, up to trailing spaces and blank lines) */
+export function sameInput(outText, inpText) {
+  const e = echoedInput(outText);
+  if (e == null) return false;
+  const a = String(inpText ?? '').replace(/\r/g, '').split('\n').map((l) => l.replace(/\s+$/, ''));
+  while (a.length && !a[0]) a.shift();
+  while (a.length && !a[a.length - 1]) a.pop();
+  return e === a.join('\n');
+}

@@ -6,6 +6,10 @@ Doğrulayıcı ve ikinci düzey faktör modelleri için **dinamik uyum indeksi (
 
 En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını indirip çift tıklayın (kurulum gerekmez, projeler exe'nin yanındaki `projects` klasörüne yazılır). Kaynaktan çalıştırmak için `baslat.bat` dosyasına çift tıklayın ya da bu klasörde `node serve.mjs` çalıştırın. Adres http://localhost:3401 (dolu ise 3402–3421). Gerekenler Mplus 8.x (8.3 ile denendi; ücretsiz demo en çok 6 maddeyle çalışır) ve kaynaktan çalıştırırken Node.js 18+'dır; npm paketi gerekmez. Arayüz biçemini ve yazı tiplerini internetten yükler. Yayımlanan web sayfalarında (tanıtım sayfası ve web sürümü) çerezsiz, kişisel veri toplamayan bir ziyaretçi sayacı (GoatCounter) vardır; bilgisayarda çalışan uygulamada yoktur. Exe'yi yeniden derlemek için `node tools/build-exe.mjs` (Node 20.12+ ve ilk seferde internet gerekir; `postject` aracı npx ile iner).
 
+## Web sürümü
+
+https://cahitgs.github.io/dynamic-fit-mplus/app/ aynı arayüzün tarayıcıda çalışan sürümüdür; kurulum gerekmez. Projeler tarayıcıda (IndexedDB) saklanır, hiçbir şey bir yere gönderilmez. Mplus kısmı iki yoldan yapılır: bilgisayarda Windows uygulaması çalışıyorsa sayfa ona bağlanır ve çalıştırmaları uygulama yapar; değilse sayfa Mplus girdilerini (hepsini sırayla çalıştıran bir toplu iş dosyasıyla birlikte) zip olarak verir, siz Mplus'ta çalıştırıp `.out` ve `_res.dat` dosyalarını yüklersiniz. Sayfa her çıktının bu çalışmanın girdisinden üretildiğini denetler; kesme değerleri ve makale tarayıcıda, uygulamayla aynı kodla hesaplanır. Ham veride iki tur gerekir: önce CFA, sonra simülasyon.
+
 ## Kullanım (5 adım)
 
 1. **Data:** Üç yoldan biri.
