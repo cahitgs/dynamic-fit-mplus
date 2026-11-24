@@ -15,7 +15,7 @@ How large SRMR, RMSEA and CFI become under a given misspecification depends on t
   - Second-order models with four or more first-order factors, in addition: omitted correlations of .50 between first-order disturbances (structural misspecification; McNeish & Manapat, 2024; dynamic's `hier2`).
   - One-factor models: omitted residual correlations of .30 (McNeish & Wolf, 2023a, 2023b). Level 1 follows the formula of McNeish & Wolf (2023a), which rounds the number of correlations (about one-third of the items); dynamic rounds down, so with 10, 11, 16, 17, 22, 23, 28 or 29 items its Level 1 has one correlation less. The report says so when it applies.
 - **Reverse-coded items do not change the cutoffs.** Each misspecification takes the sign that keeps it the same when an item is reverse-coded or a factor is reflected. The papers and dynamic always add positive values, so with positive loadings the two are identical. An "As dynamic" setting reproduces dynamic exactly instead (dynamic issue #7), including its one-factor Level 1.
-- **CFI for every replication.** Mplus 8.3 does not report CFI for Monte Carlo studies (McNeish & Wolf, 2023a, Appendix B). The app therefore runs every condition a second time with the baseline model on the same seed, and computes CFI from the two chi-square statistics as Mplus does.
+- **CFI for every replication.** Mplus 8.3 does not report CFI for Monte Carlo studies (McNeish & Wolf, 2023a, Appendix B), and Mplus 9.1.1 reports it for models with a mean structure but not with `MODEL = NOMEANSTRUCTURE`. The app therefore runs every condition a second time with the baseline model on the same seed, and computes CFI from the two chi-square statistics as Mplus does. Where Mplus 9.1.1 saves CFI itself, the app's value is the same in every replication.
 - **Improper solutions are counted.** Replications whose residual or latent covariance matrix is not positive definite (Mplus TECH9) are reported for every condition. You choose whether they are retained, as in dynamic, or excluded.
 - **Two cutoff rules, both reported** (the main one in Table 2, the other in Table 3):
   - The 95/5 rule with a 90/10 fallback (McNeish & Wolf, 2023a, 2023b; dynamic's `hier1HB` and `hier2`): the main rule for continuous items and for second-order models.
@@ -32,7 +32,7 @@ Your data stay on your computer: the server listens only on localhost, runs Mplu
 
 ## Requirements
 
-- Windows with **Mplus 8.x** (tested with Mplus 8.3). The full version is needed for realistic models: the free demo is limited to 6 dependent variables.
+- Windows with **Mplus 8.3 or later** (tested with Mplus 8.3 and 9.1.1). The full version is needed for realistic models: the free demo is limited to 6 dependent variables.
 - Nothing else for the Windows app. To run from source you need Node.js 18 or newer; there are no npm packages to install.
 
 ## Get started
@@ -84,6 +84,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 - **Appendix B of McNeish & Wolf (2023a):** with the same Mplus options (`MODEL = NOMEANSTRUCTURE; INFORMATION = EXPECTED;`) and seed (1981), the app's Monte Carlo inputs reproduce the appendix's simulation replication by replication.
 - **The DFI tutorial of Wolf & McNeish (2023):** its 10-item Extraversion example (N = 1,222, five reverse-coded items; Table 10.1) is reproduced within .002 with the "As dynamic" setting and no mean structure, over three seed pairs.
 - **Self-test:** `node tools/engine-test.mjs` checks the engine, runs the sample CFA in Mplus in an ASCII folder, a folder with Turkish letters and spaces, and through an ASCII temporary copy, runs a short ordinal DFI, and reproduces a 500-replication reference DFI of the A-SAGS model (`--quick` skips the reference DFI).
+- **Mplus versions:** the app was developed with Mplus 8.3. With Mplus 9.1.1 the self-test passes as well, and an ordinal second-order study of the A-SAGS data of Boivin et al. (2026) (N = 523; WLSMV and ML, 500 replications each) gave the same cutoffs and the same numbers of improper solutions as with Mplus 8.3. In those 9.1.1 runs the app's CFI equaled the CFI that Mplus saved in all 2,999 replications.
 
 ## Notes on fit index definitions
 
