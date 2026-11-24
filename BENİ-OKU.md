@@ -4,7 +4,7 @@ Doğrulayıcı ve ikinci düzey faktör modelleri için **dinamik uyum indeksi (
 
 ## Başlatma
 
-En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını indirip çift tıklayın (kurulum gerekmez, projeler exe'nin yanındaki `projects` klasörüne yazılır). Kaynaktan çalıştırmak için `baslat.bat` dosyasına çift tıklayın ya da bu klasörde `node serve.mjs` çalıştırın. Adres http://localhost:3401 (dolu ise 3402–3421). Gerekenler Mplus 8.x (8.3 ile denendi; ücretsiz demo en çok 6 maddeyle çalışır) ve kaynaktan çalıştırırken Node.js 18+'dır; npm paketi gerekmez. Arayüz biçemini ve yazı tiplerini internetten yükler. Yayımlanan web sayfalarında (tanıtım sayfası ve web sürümü) çerezsiz, kişisel veri toplamayan bir ziyaretçi sayacı (GoatCounter) vardır; bilgisayarda çalışan uygulamada yoktur. Exe'yi yeniden derlemek için `node tools/build-exe.mjs` (Node 20.12+ ve ilk seferde internet gerekir; `postject` aracı npx ile iner).
+En kolayı: GitHub'daki Releases sayfasından `DynamicFitMplus.exe` dosyasını indirip çift tıklayın (kurulum gerekmez, projeler exe'nin yanındaki `projects` klasörüne yazılır). Kaynaktan çalıştırmak için `baslat.bat` dosyasına çift tıklayın ya da bu klasörde `node serve.mjs` çalıştırın. Adres http://localhost:3401 (dolu ise 3402–3421). Gerekenler Mplus 8.3 veya sonrası (8.3 ve 9.1.1 ile denendi; ücretsiz demo en çok 6 maddeyle çalışır) ve kaynaktan çalıştırırken Node.js 18+'dır; npm paketi gerekmez. Arayüz biçemini ve yazı tiplerini internetten yükler. Yayımlanan web sayfalarında (tanıtım sayfası ve web sürümü) çerezsiz, kişisel veri toplamayan bir ziyaretçi sayacı (GoatCounter) vardır; bilgisayarda çalışan uygulamada yoktur. Exe'yi yeniden derlemek için `node tools/build-exe.mjs` (Node 20.12+ ve ilk seferde internet gerekir; `postject` aracı npx ile iner).
 
 ## Web sürümü
 
@@ -29,7 +29,7 @@ https://cahitgs.github.io/dynamic-fit-mplus/app/ aynı arayüzün tarayıcıda �
 
 - Kesme değerleri, kullanıcının raporladığı Mplus indeksleriyle aynı tanımlarla hesaplanır. Bu özellikle SRMR için önemlidir: Mplus ML'de varsayılan olarak ortalama yapısını da kestirir ve SRMR'yi ortalama artıklarıyla birlikte hesaplar; `dynamic` ve lavaan'ın varsayılanı ise ortalama yapısı içermez (15 maddede oran √(120/135) ≈ .943). Model `MODEL = NOMEANSTRUCTURE` ile kestirilmişse uygulama simülasyonu da öyle kurar.
 - Sıralı maddeler için ikinci düzey modellerde de WLSMV ile kategorik DFI üretilir.
-- Mplus 8.3'ün Monte Carlo çıktısı CFI vermez (McNeish ve Wolf, 2023a, Ek B; CFI/TLI Mplus 8.4'te eklendi). Bu yüzden her koşul aynı seed ile temel modelle de çalıştırılır ve CFI, Mplus'ın kendi formülüyle her tekrar için hesaplanır.
+- Mplus 8.3'ün Monte Carlo çıktısı CFI vermez (McNeish ve Wolf, 2023a, Ek B; CFI/TLI Mplus 8.4'te eklendi). Mplus 9.1.1 CFI'yi ortalama yapılı modellerde verir, `MODEL = NOMEANSTRUCTURE` ile vermez. Bu yüzden her koşul aynı seed ile temel modelle de çalıştırılır ve CFI, Mplus'ın kendi formülüyle her tekrar için hesaplanır; Mplus 9.1.1'in kendi kaydettiği CFI ile her tekrarda aynıdır.
 
 ## Doğrulama
 
@@ -44,6 +44,7 @@ Ayrıca:
 - Uygulamanın iki kesme kuralı, `dynamic`'in kendi simülasyon dağılımlarına uygulandığında paketin yazdırdığı 33 kesme değerinin 33'ünü verir.
 - McNeish ve Wolf (2023a) Ek B simülasyonu, aynı seçenekler (`MODEL = NOMEANSTRUCTURE; INFORMATION = EXPECTED;`) ve seed (1981) ile her tekrarda birebir yeniden üretilmiştir.
 - SRMR'deki fark, Mplus'ın ML'de varsayılan olarak ortalama yapısını kestirmesinden kaynaklanır.
+- Mplus 9.1.1 ile de denenmiştir: öz-test geçer; A-SAGS verisiyle (Boivin ve ark., 2026; N = 523) yapılan sıralı ikinci düzey çalışma (WLSMV ve ML, 500'er tekrar) Mplus 8.3 ile aynı kesme değerlerini ve aynı uygunsuz çözüm sayılarını verir. Bu koşularda uygulamanın CFI'si, Mplus 9.1.1'in kendi kaydettiği CFI ile 2.999 tekrarın hepsinde aynıdır.
 
 ## Sınırlar
 

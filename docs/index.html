@@ -81,7 +81,7 @@
 </head>
 <body>
 <header class="wrap">
-  <p class="eyebrow">Free and open source · Windows · Mplus 8</p>
+  <p class="eyebrow">Free and open source · Windows · Mplus 8 and 9</p>
   <h1>Dynamic Fit for Mplus</h1>
   <p class="lead">Dynamic fit index cutoffs for confirmatory and second-order factor models, simulated with Mplus on your own computer. The cutoffs separate the fit of your <span class="chip l2"><i></i>correct model</span> from the fit under a <span class="chip l1"><i></i>misspecification</span> of known size, with the fit index definitions of the Mplus output you report.</p>
   <div class="actions">
@@ -89,7 +89,7 @@
     <a class="btn btn-ghost" href="app/"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13ZM4 9h16"/></svg>Open the web app</a>
     <a class="btn btn-ghost" href="https://github.com/cahitgs/dynamic-fit-mplus"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>Source on GitHub</a>
   </div>
-  <p class="fine">A single <code>.exe</code>, nothing to install. The web app also works on its own: it writes the Mplus inputs, you run them in Mplus and upload the outputs; your projects stay in your browser. Needs Mplus 8.x on the same computer (tested with 8.3; the free demo handles at most 6 items). Your data never leave it; the interface loads its styles and fonts from the web.</p>
+  <p class="fine">A single <code>.exe</code>, nothing to install. The web app also works on its own: it writes the Mplus inputs, you run them in Mplus and upload the outputs; your projects stay in your browser. Needs Mplus 8.3 or later on the same computer (tested with 8.3 and 9.1.1; the free demo handles at most 6 items). Your data never leave it; the interface loads its styles and fonts from the web.</p>
   <figure class="shot"><img src="img/report.png" alt="The app: the control column on the left and the APA paper with the dynamic cutoffs and the distribution figure on the right" width="1920" height="1080"></figure>
 </header>
 
@@ -100,7 +100,7 @@
     <div class="card"><h3>Three ways in</h3><p>Raw data (the app fits your CFA in Mplus first), an Mplus output file, or standardized estimates typed in from a paper.</p></div>
     <div class="card"><h3>One-factor, multi-factor, second-order</h3><p>Continuous items as normal data with ML, or ordinal items generated from the estimated thresholds and analyzed with WLSMV.</p></div>
     <div class="card"><h3>The rules of dynamic</h3><p>Misspecifications as in the dynamic R package: omitted cross-loadings, residual correlations of .30 in one-factor models, and disturbance correlations in second-order models. Reverse-coded items do not change them.</p></div>
-    <div class="card"><h3>CFI in every replication</h3><p>Mplus 8.3 Monte Carlo does not report CFI, so each condition is rerun with the baseline model on the same seed.</p></div>
+    <div class="card"><h3>CFI in every replication</h3><p>Mplus 8.3 Monte Carlo does not report CFI, and Mplus 9.1.1 reports it only with a mean structure, so each condition is rerun with the baseline model on the same seed.</p></div>
     <div class="card"><h3>Improper solutions in the open</h3><p>Replications with a non–positive definite covariance matrix (TECH9) are counted; keep them, as dynamic does, or exclude them.</p></div>
     <div class="card"><h3>A paper draft, not just numbers</h3><p>APA 7 method, results, tables, a figure in black and white or color, and references. Every Mplus file is one click away.</p></div>
   </div>
