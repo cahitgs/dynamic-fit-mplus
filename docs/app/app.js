@@ -277,7 +277,9 @@ function confirmDlg(title, body, okLabel, danger = false) {
     d.onclick = null;
     d.innerHTML = `<form method="dialog" class="p-6"><h2 class="h2 mb-2">${esc(title)}</h2><p class="text-ink-2 small mb-5">${esc(body)}</p>
       <div class="flex justify-end gap-2"><button class="btn" value="no">${t('Cancel', 'Vazgeç')}</button><button class="btn ${danger ? 'btn-dark' : 'btn-primary'}" value="ok">${esc(okLabel || t('Continue', 'Devam et'))}</button></div></form>`;
-    d.onclose = () => resolve(d.returnValue === 'ok');
+    // the dialog is shared: a close event still on its way from the dialog shown before arrives while this one is
+    // open, and is not an answer
+    d.onclose = () => { if (d.open) return; resolve(d.returnValue === 'ok'); };
     d.returnValue = ''; // Escape must not reuse an earlier "ok"
     d.showModal();
   });
@@ -2252,8 +2254,7 @@ async function openProjectsDialog() {
     const del = e.target.closest('[data-del-project]');
     if (del) { // the web version only: the project and its files leave this browser
       const id = del.dataset.delProject, p = S.projects.find((x) => x.id === id);
-      d.close();
-      await new Promise((r) => setTimeout(r, 0)); // the close event of this dialog must not reach the confirmation
+      d.close(); // its close event may arrive after the confirmation has opened; confirmDlg ignores it
       if (!(await confirmDlg(t('Remove the project?', 'Proje kaldırılsın mı?'), t(`“${p ? p.name : id}” and its files are removed from this browser. Download the paper or the files first if you need them.`, `“${p ? p.name : id}” ve dosyaları bu tarayıcıdan kaldırılır. Gerekiyorsa önce makaleyi ya da dosyaları indirin.`), t('Remove', 'Kaldır'), true))) { openProjectsDialog(); return; }
       try { await api(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch (err) { toast(err.message, 'err'); }
       if (S.P && S.P.id === id) { S.P = null; resetProjectState(); store.set('aa.last', ''); S.route = { page: 'data' }; }
