@@ -1357,8 +1357,10 @@ function manualFiles(stage) {
 // run_all.bat: Mplus on every input, one after the other (MPLUS_PATH, else the usual folder); "/q" skips the pause
 function batText(inputs) {
   const L = ['@echo off', 'rem Dynamic Fit for Mplus: runs Mplus on every input of this folder, one after the other.',
-    'rem Mplus is taken from MPLUS_PATH, else from C:\\Program Files\\Mplus. "run_all.bat /q" does not wait at the end.',
+    'rem Mplus is taken from MPLUS_PATH, else from its folder in Program Files (Mplus 9, Mplus), else from the PATH.',
+    'rem "run_all.bat /q" does not wait at the end.',
     'cd /d "%~dp0"', 'set "MPLUS=%MPLUS_PATH%"',
+    'for /d %%d in ("C:\\Program Files\\Mplus ?*" "C:\\Program Files (x86)\\Mplus ?*") do if not defined MPLUS if exist "%%d\\Mplus.exe" set "MPLUS=%%d\\Mplus.exe"',
     'if not defined MPLUS if exist "C:\\Program Files\\Mplus\\Mplus.exe" set "MPLUS=C:\\Program Files\\Mplus\\Mplus.exe"',
     'if not defined MPLUS if exist "C:\\Program Files (x86)\\Mplus\\Mplus.exe" set "MPLUS=C:\\Program Files (x86)\\Mplus\\Mplus.exe"',
     'if not defined MPLUS set "MPLUS=Mplus.exe"'];
@@ -1373,8 +1375,8 @@ function readmeText(stage, inputs) {
     '1. Keep these files together in one folder whose path has only plain letters and digits: Mplus cannot',
     '   read folders with Turkish or accented letters.',
     '2. Double-click run_all.bat. It runs Mplus on every input, one after the other, and Mplus writes',
-    '   <name>.out (and, for the simulation, <name>_res.dat) next to each input. Mplus is taken from',
-    '   C:\\Program Files\\Mplus; set the MPLUS_PATH environment variable if it is elsewhere. Or open each',
+    '   <name>.out (and, for the simulation, <name>_res.dat) next to each input. Mplus is taken from its',
+    '   folder in Program Files (Mplus 9 or Mplus); set MPLUS_PATH if it is elsewhere. Or open each',
     '   .inp file in the Mplus editor and click Run.',
     `3. Back in Dynamic Fit for Mplus, Run step: click "Upload the outputs" and select ${back}.`,
     '   The cutoffs and the paper are computed in the browser; nothing is sent anywhere.', '',
@@ -1526,7 +1528,7 @@ function ctrlRunHosted(eyebrow, back) {
   const how = `<details class="card" data-key="howrun"${howOpen ? ' open' : ''}><summary class="card-h" style="padding-bottom:18px"><div class="min-w-0"><h2 class="h3">${t('How to run the inputs in Mplus', 'Girdiler Mplus’ta nasıl çalıştırılır')}</h2><p class="small muted">${t('Four steps; the zip carries a batch file and the same notes.', 'Dört adım; zip içinde bir toplu iş dosyası ve aynı notlar var.')}</p></div>${icon('arrow', 16)}</summary>
     <div class="card-b" style="padding-top:0"><ol class="grid gap-3 small">
       ${li(1, t('Download the zip and extract it into a folder whose path has only plain letters and digits (Mplus cannot read folders with Turkish or accented letters).', 'Zip dosyasını indirip yolu yalnız düz harf ve rakamlardan oluşan bir klasöre çıkarın (Mplus, Türkçe ya da aksanlı harf içeren klasörleri okuyamaz).'))}
-      ${li(2, t('Double-click <b>run_all.bat</b>: it runs Mplus on every input, one after the other (Mplus is taken from <i>C:\\Program Files\\Mplus</i>, or from the MPLUS_PATH variable). Windows may ask once whether to run the file. Or open each .inp in the Mplus editor and click Run.', '<b>run_all.bat</b> dosyasına çift tıklayın: Mplus’ı her girdi için sırayla çalıştırır (Mplus, <i>C:\\Program Files\\Mplus</i> klasöründen ya da MPLUS_PATH değişkeninden alınır). Windows bir kez dosyanın çalıştırılıp çalıştırılmayacağını sorabilir. Ya da her .inp dosyasını Mplus düzenleyicisinde açıp Run’a tıklayın.'))}
+      ${li(2, t('Double-click <b>run_all.bat</b>: it runs Mplus on every input, one after the other (Mplus is taken from its folder in Program Files, <i>Mplus 9</i> or <i>Mplus</i>, or from the MPLUS_PATH variable). Windows may ask once whether to run the file. Or open each .inp in the Mplus editor and click Run.', '<b>run_all.bat</b> dosyasına çift tıklayın: Mplus’ı her girdi için sırayla çalıştırır (Mplus, Program Files altındaki klasöründen, <i>Mplus 9</i> ya da <i>Mplus</i>, ya da MPLUS_PATH değişkeninden alınır). Windows bir kez dosyanın çalıştırılıp çalıştırılmayacağını sorabilir. Ya da her .inp dosyasını Mplus düzenleyicisinde açıp Run’a tıklayın.'))}
       ${li(3, t('Wait for Mplus to finish. It writes a .out file (and, for the simulation, a _res.dat file) next to each input.', 'Mplus’ın bitmesini bekleyin. Her girdinin yanına bir .out dosyası (simülasyon için ayrıca bir _res.dat dosyası) yazar.'))}
       ${li(4, t('Come back here and upload those files, all at once. The page checks that each output was made from the input of this study, then computes the cutoffs and writes the paper. Your project is saved in this browser, so you can close the page in between.', 'Buraya dönüp bu dosyaların hepsini bir kerede yükleyin. Sayfa her çıktının bu çalışmanın girdisinden üretildiğini denetler, sonra kesme değerlerini hesaplayıp makaleyi yazar. Projeniz bu tarayıcıda saklanır; arada sayfayı kapatabilirsiniz.'))}
     </ol></div></details>`;
@@ -2454,7 +2456,7 @@ function connectDlg() {
     const offer = () => `<div class="p-6">${head(t('Dynamic Fit for Mplus on the web', 'Web’de Dynamic Fit for Mplus'))}
       <p class="text-ink-2 small mb-4">${t('The simulations run in Mplus on your own computer, and nothing you load here is sent anywhere. Two ways to work:', 'Simülasyonlar kendi bilgisayarınızdaki Mplus’ta çalışır; buraya yüklediğiniz hiçbir şey bir yere gönderilmez. İki yol var:')}</p>
       <div class="grid gap-3 mb-3">
-        ${way(t('Windows app · recommended', 'Windows uygulaması · önerilen'), t('<b>DynamicFitMplus.exe</b> (89 MB) runs Mplus for you and keeps your projects in a folder next to it. Windows and Mplus 8.x; nothing is installed. The file is not signed, so Windows may ask once: <i>More info → Run anyway</i>. The app opens in a new browser tab.', '<b>DynamicFitMplus.exe</b> (89 MB) Mplus’ı sizin yerinize çalıştırır ve projelerinizi yanındaki bir klasörde saklar. Windows ve Mplus 8.x gerekir; kurulum yapılmaz. Dosya imzasız olduğundan Windows bir kez sorabilir: <i>Ek bilgi → Yine de çalıştır</i>. Uygulama tarayıcıda yeni bir sekmede açılır.'), `<a class="btn btn-primary" href="${EXE_URL}" download autofocus>${icon('download', 16)}${t('Download for Windows', 'Windows için indir')}</a><button class="btn" data-dlg-retry>${icon('refresh', 16)}${t('It is running', 'Çalışıyor')}</button>`)}
+        ${way(t('Windows app · recommended', 'Windows uygulaması · önerilen'), t('<b>DynamicFitMplus.exe</b> (89 MB) runs Mplus for you and keeps your projects in a folder next to it. Windows and Mplus 8 or 9; nothing is installed. The file is not signed, so Windows may ask once: <i>More info → Run anyway</i>. The app opens in a new browser tab.', '<b>DynamicFitMplus.exe</b> (89 MB) Mplus’ı sizin yerinize çalıştırır ve projelerinizi yanındaki bir klasörde saklar. Windows ve Mplus 8 ya da 9 gerekir; kurulum yapılmaz. Dosya imzasız olduğundan Windows bir kez sorabilir: <i>Ek bilgi → Yine de çalıştır</i>. Uygulama tarayıcıda yeni bir sekmede açılır.'), `<a class="btn btn-primary" href="${EXE_URL}" download autofocus>${icon('download', 16)}${t('Download for Windows', 'Windows için indir')}</a><button class="btn" data-dlg-retry>${icon('refresh', 16)}${t('It is running', 'Çalışıyor')}</button>`)}
         ${way(t('In this browser, with your own Mplus', 'Bu tarayıcıda, kendi Mplus’ınızla'), t('The page writes the Mplus inputs; you run them in Mplus (one batch file does it) and upload the outputs. The cutoffs and the paper are computed here, and your projects are kept in this browser.', 'Sayfa Mplus girdilerini yazar; siz onları Mplus’ta çalıştırır (tek bir toplu iş dosyası yeter) ve çıktıları yüklersiniz. Kesme değerleri ve makale burada hesaplanır; projeleriniz bu tarayıcıda saklanır.'), browserBtn)}
       </div>
       <p class="hint" id="connState" role="status">${t('Looking for the app on this computer…', 'Uygulama bu bilgisayarda aranıyor…')}</p></div>`;

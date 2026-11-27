@@ -2,7 +2,8 @@
 //   detectMplus()  → {ok, path, version, demo, error, asciiWorkaround}      (cached; {refresh: true} re-checks)
 //   detectR()      → {ok, path, version, jsonlite, error, asciiWorkaround}  (cached; {refresh: true} re-checks)
 //   runEngine({engine, dir, file, onStart, onLog, signal}) → {exitCode, outFile, logFile, logTail, outExists, aborted, asciiTemp}
-// Overrides: MPLUS_PATH (Mplus.exe), RSCRIPT_PATH (Rscript.exe).
+// Overrides: MPLUS_PATH (Mplus.exe), RSCRIPT_PATH (Rscript.exe). Mplus is looked for in Program Files ("Mplus 9", then
+// "Mplus"), then on the PATH.
 //
 // Folders with non-ASCII characters: the engines are started with the project folder as working directory
 // and only relative, ASCII file names. Detection test-runs each engine in a folder named "Ş ı probe";
@@ -63,8 +64,14 @@ async function probeDirs() {
 function mplusCandidates() {
   const list = [];
   if (IS_WIN) {
-    for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.ProgramW6432, 'C:\\Program Files', 'C:\\Program Files (x86)']) {
-      if (base) list.push(path.join(base, 'Mplus', 'Mplus.exe'));
+    const bases = [...new Set([process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.ProgramW6432, 'C:\\Program Files', 'C:\\Program Files (x86)'].filter(Boolean))];
+    for (const base of bases) {
+      // Mplus 8 installs into "Mplus", Mplus 9 into "Mplus 9": the numbered folders first, the newest version first
+      let dirs = [];
+      try { dirs = fss.readdirSync(base).filter((d) => /^Mplus\s*\d/i.test(d)); } catch { /* no access */ }
+      dirs.sort((a, b) => (parseFloat(b.replace(/^Mplus\s*/i, '')) || 0) - (parseFloat(a.replace(/^Mplus\s*/i, '')) || 0));
+      for (const d of dirs) list.push(path.join(base, d, 'Mplus.exe'));
+      list.push(path.join(base, 'Mplus', 'Mplus.exe'));
     }
   } else {
     list.push('/Applications/Mplus/mplus', '/opt/mplus/mplus', '/usr/local/bin/mplus');

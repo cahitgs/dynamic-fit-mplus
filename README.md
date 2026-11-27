@@ -32,7 +32,7 @@ Your data stay on your computer: the server listens only on localhost, runs Mplu
 
 ## Requirements
 
-- Windows with **Mplus 8.x** (tested with Mplus 8.3). The full version is needed for realistic models: the free demo is limited to 6 dependent variables.
+- Windows with **Mplus 8 or 9** (tested with Mplus 8.3 and 9.1.1; the app looks in `Program Files\Mplus 9` and `Program Files\Mplus`, then on the PATH, or uses `MPLUS_PATH`). The full version is needed for realistic models: the free demo is limited to 6 dependent variables.
 - Nothing else for the Windows app. To run from source you need Node.js 18 or newer; there are no npm packages to install.
 
 ## Get started
@@ -60,7 +60,7 @@ cd dynamic-fit-mplus
 node serve.mjs --open
 ```
 
-On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is not in `C:\Program Files\Mplus`.
+On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is not in `Program Files\Mplus 9` or `Program Files\Mplus` and not on the PATH.
 
 ## How it works
 
@@ -105,7 +105,7 @@ On Windows you can also double-click `baslat.bat`. Set `MPLUS_PATH` if Mplus is 
 
 Cite the method papers and the software:
 
-> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.1.0) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
+> Marangoz, M. C. (2026). *Dynamic Fit for Mplus* (Version 1.1.1) [Computer software]. https://github.com/cahitgs/dynamic-fit-mplus
 
 ## References
 
